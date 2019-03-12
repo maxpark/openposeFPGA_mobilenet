@@ -178,11 +178,6 @@ void stencil_w3(
   int iter_bound = layer_in_h_t * T_IN_W_T + (T_WS - 1) * T_IN_W_T + T_WS - 1;
   int bound = oo_bound * iter_bound;
 
-//  for (int oo = 0; oo < layer_in_num_t / T_UNROLL; oo++){
-//    uint trans_cnt = 0;
-//    uint inner_trans_cnt = 0;
-
-//  for (int iter = 0; iter < layer_in_h_t * T_IN_W_T + (T_WS - 1) * T_IN_W_T + T_WS - 1; iter++){
   for (int total_iter = 0; total_iter < bound; total_iter++){
 #pragma HLS PIPELINE II=1    
     if (iter == 0){
@@ -191,7 +186,6 @@ void stencil_w3(
     }
 
     ap_uint<T_DATA_WIDTH0 * T_UNROLL> wide_data_in;
-//    if (iter < T_IN_H_T * T_IN_W_T){
     if (iter < layer_in_h_t * T_IN_W_T){
       wide_data_in = fifo_in.read();
     }
@@ -203,14 +197,12 @@ void stencil_w3(
 #pragma HLS UNROLL
         line_buf1[dup][i] = line_buf1[dup][i - 1];
         line_buf2[dup][i] = line_buf2[dup][i - 1];
-//        line_buf3[dup][i] = line_buf3[dup][i - 1];
       }
       for (int i = T_WS - 1; i >= 1; i--){
 #pragma HLS UNROLL
         line_buf3[dup][i] = line_buf3[dup][i - 1];
       }
       
-//      if (iter < T_IN_H_T * T_IN_W_T){        
       if (iter < layer_in_h_t * T_IN_W_T){        
         ap_uint<T_DATA_WIDTH0> sel_tmp;
 #if DEPTH_CONV_LANE == 16
@@ -323,10 +315,6 @@ void stencil_w3(
         }
 #endif        
         line_buf1[dup][0] = Reinterpret<T_data_t0>(sel_tmp);
-#ifdef DEBUG
-//        cout << "stencil_w3: " << line_buf1[dup][0] << " iter: " << iter << endl;
-#endif        
-//        line_buf1[dup][0] = data_select<data_t, ap_uint<DATA_WIDTH * UNROLL>, DATA_WIDTH>(wide_data_in, dup);        
       } else {      
         line_buf1[dup][0] = 0.0;
       }
@@ -361,7 +349,6 @@ void stencil_w3(
       col_skip = (inner_trans_cnt % stride != stride - 1);
       row_skip = ((inner_trans_cnt / (T_IN_W_T - (T_WS - 1))) % stride != stride - 1);
       col_strip_skip = trans_cnt % T_IN_W_T >= (T_IN_W_T - (T_WS - 1));
-//      row_strip_skip = trans_cnt / T_IN_W_T >= (T_IN_H_T - (T_WS - 1));
       row_strip_skip = trans_cnt / T_IN_W_T >= (layer_in_h_t - (T_WS - 1));
       if (!col_strip_skip && !row_strip_skip){
         if (!col_skip && !row_skip){
@@ -388,21 +375,14 @@ void stencil_w3(
             utmp[0]
 #endif
             );
-#ifdef DEBUG        
-        data_t0 debug_tmpf = Reinterpret<data_t0>(wide_data);
-//        cout << col_strip_skip << " " << row_strip_skip << " " << T_IN_W_T << " " << T_WS << endl;
-//        cout << "stencil_w3 output: " << debug_tmpf << " trans#: " << trans_cnt << endl;
-#endif        
         fifo_out.write(wide_data); 
       
         }
         inner_trans_cnt++;
       }
-//      cout << "stencil_w3 trans: " << trans_cnt << endl;
       trans_cnt++;
     }
 
-//  }
     iter++;
     if (iter == iter_bound){
       iter = 0;
@@ -447,11 +427,6 @@ void stencil_w1(
   uint trans_cnt = 0;
   uint inner_trans_cnt = 0;
 
-//  for (int oo = 0; oo < layer_in_num_t / T_UNROLL; oo++){
-//  uint trans_cnt = 0;
-//  uint inner_trans_cnt = 0;
-
-//  for (int iter = 0; iter < layer_in_h_t * T_IN_W_T + (T_WS - 1) * T_IN_W_T + T_WS - 1; iter++){
   for (int total_iter = 0; total_iter < total_bound; total_iter++){
 #pragma HLS PIPELINE II=1    
     if (iter == 0){
@@ -628,10 +603,6 @@ void stencil_w1(
         inner_trans_cnt++;
       }
       trans_cnt++;
-//      if (iter == layer_in_h_t * T_IN_W_T + (T_WS - 1) * T_IN_W_T + T_WS - 1 - 1){
-//        trans_cnt = 0;
-//        inner_trans_cnt = 0;
-//      }
     }
 
     iter++;
@@ -642,7 +613,6 @@ void stencil_w1(
         oo = 0;
       }
     }
-//  }
   }
 }
 
@@ -682,8 +652,6 @@ void maxpool_w2(
   int iter_bound = layer_in_h_t * T_IN_W_T + (T_WS - 1) * T_IN_W_T + T_WS - 1;
   int total_bound = oo_bound * iter_bound;
 
-//  for (int oo = 0; oo < layer_out_num_t / T_UNROLL; oo++){
-//  for (int iter = 0; iter < layer_in_h_t * T_IN_W_T + (T_WS - 1) * T_IN_W_T + T_WS - 1; iter++){
   for (int total_iter = 0; total_iter < total_bound; total_iter++){
 #pragma HLS PIPELINE II=1    
     if (iter == 0){
@@ -693,12 +661,6 @@ void maxpool_w2(
     ap_uint<T_DATA_WIDTH0 * T_UNROLL> wide_data_in;
     if (iter < layer_in_h_t * T_IN_W_T){
       wide_data_in = fifo_in.read();
-#ifdef DEBUG
-      if (iter == 0){
-        T_data_t0 tmpf = Reinterpret<T_data_t0>(wide_data_in);
-//        cout << "pool: " << tmpf << endl;
-      }
-#endif      
     }
 
     for (int dup = 0; dup < T_UNROLL; dup++){
@@ -824,9 +786,6 @@ void maxpool_w2(
         }
 #endif     
         line_buf1[dup][0] = Reinterpret<T_data_t0>(sel_tmp);
-#ifdef DEBUG
-//        cout << "max_pool: " << line_buf1[dup][0] << " idx: " << iter << endl;
-#endif        
       } else {      
         line_buf1[dup][0] = 0.0;
       }
@@ -837,8 +796,6 @@ void maxpool_w2(
       T_data_t0 mux_0_1 = max(line_buf1[dup][T_WS - 1], line_buf1[dup][T_WS - 2]);
       T_data_t0 mux_1_0 = max(mux_0_0, mux_0_1);
 
-//      cout << max_en << endl;
-
       if (max_en == 1)
         sums[dup] = mux_1_0;
       else
@@ -848,13 +805,9 @@ void maxpool_w2(
     if (iter >= (T_WS - 1) * T_IN_W_T + T_WS - 1){      
       col_skip = (trans_cnt % stride != 0);
       row_skip = ((trans_cnt / T_IN_W_T) % stride != 0);
-#ifdef DEBUG
-//      cout << "trans_cnt: " << trans_cnt << " row_skip: " << row_skip << " col_skip: " << col_skip << " stride: " << stride << endl;
-#endif
       if (!col_skip && !row_skip){
         for (int ii = 0; ii < T_UNROLL; ii++){
           T_data_t0 sum_tmp = sums[ii];
-//          cout << "max_pool output: " << sum_tmp << " iter: " << iter << endl;
           ap_uint<T_DATA_WIDTH0> utmp_tmp = Reinterpret<ap_uint<T_DATA_WIDTH0> >(sum_tmp);
           utmp[ii] = utmp_tmp;
         }          
@@ -875,19 +828,9 @@ void maxpool_w2(
             utmp[0]
 #endif            
             );
-#ifdef DEBUG
-//        if (trans_cnt == 0)
-//          cout << "max_pool: " << sums[0] << endl;
-#endif
         fifo_out.write(wide_data); 
-#ifdef DEBUG
-        max_pool_cout_cnt++;
-#endif
       }
       trans_cnt++;
-//      if (iter == layer_in_h_t * T_IN_W_T + (T_WS - 1) * T_IN_W_T + T_WS - 1 - 1){
-//        trans_cnt = 0;
-//      }
     }
 
     iter++;
@@ -898,11 +841,7 @@ void maxpool_w2(
         oo = 0;
       }
     }
-//  }
   }
-#ifdef DEBUG
-//  cout << "max_pool: " << max_pool_cout_cnt << endl;
-#endif 
 }
 
 #endif

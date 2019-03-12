@@ -39,10 +39,6 @@ void cin_load_ddr_read(
 ){
   if ((LAYER_IN_H_HW <= IN_H_T + K_T - 1) && (LAYER_IN_W_HW <= IN_W_T + K_T - 1) && !max_pool){
   // Load the patch as a whole if it fits in on-chip buffer.
-//  if ((LAYER_IN_H_HW * LAYER_IN_W_HW * LAYER_IN_NUM_T < (IN_H_T + K_T - 1) * (IN_W_T + K_T - 1) * IN_NUM_T) && !max_pool){
-#ifdef DEBUG
-    cout << "here" << endl;
-#endif    
     uint global_cin_offset = in_num_iter * LAYER_IN_H_HW * LAYER_IN_W_HW + cin_offset;
     memcpy((void*)cin_burst_buf, (void*)&global_cin[global_cin_offset / BUS_PACK_FACTOR0], sizeof(data_t0) * LAYER_IN_NUM_T * LAYER_IN_H_HW * LAYER_IN_W_HW);
   } else {
@@ -51,11 +47,6 @@ void cin_load_ddr_read(
       uint local_cin_offset = hh * (LAYER_IN_W_T + FILTER_S - 1) * LAYER_IN_NUM_T;
       uint global_cin_offset = in_num_iter * LAYER_IN_H_HW * LAYER_IN_W_HW + h * LAYER_IN_W_HW * LAYER_IN_NUM_T + in_w_iter * LAYER_IN_NUM_T + cin_offset;
       memcpy((void*)&cin_burst_buf[local_cin_offset / BUS_PACK_FACTOR0], (void*)&global_cin[global_cin_offset / BUS_PACK_FACTOR0], sizeof(data_t0) * LAYER_IN_NUM_T * (LAYER_IN_W_T + FILTER_S - 1));
-#ifdef DEBUG      
-      if (cin_offset == 9248 || cin_offset == 0){
-        cout << "cin_load_ddr_read:" << local_cin_offset << ", " << global_cin_offset << endl;
-      }
-#endif      
     }
   }
 }
@@ -72,9 +63,6 @@ void cin_load_fifo_write(
   uint                           LAYER_IN_W_T,
   uint                           FILTER_S
 ){
-//    for (int ii = 0; ii < LAYER_IN_NUM_T / DEPTH_CONV_LANE; ii++)    
-//      for (int hh = 0; hh < LAYER_IN_H_T + FILTER_S - 1; hh++)
-//        for (int ww = 0; ww < LAYER_IN_W_T + FILTER_S - 1; ww++){
   int ii = 0;
   int hh = 0;
   int ww = 0;
@@ -206,10 +194,6 @@ void cin_load_fifo_write(
         }
       }
     }
-//    for (int ii = 0; ii < LAYER_IN_NUM_T / DEPTH_CONV_LANE; ii++)    
-//      for (int hh = 0; hh < LAYER_IN_H_T + FILTER_S - 1; hh++)
-//        for (int ww = 0; ww < LAYER_IN_W_T + FILTER_S - 1; ww++){
-   
   }
 }
 
@@ -352,9 +336,6 @@ void cin_load(
   
     // offsets
   	uint cin_offset = CIN_OFFSET;
-#ifdef DEBUG
-    cout << "fkoffset: " << cin_offset << endl;
-#endif    
 
     // set up some configuration signals
     uint FILTER_S = (DEPTH_CONV_EN == 1)? (uint)FILTER_S1: ((CONV_EN == 1)? (uint)FILTER_S2: 1);
@@ -367,28 +348,6 @@ void cin_load(
       if ((max_pool && out_num_iter == 0) || separable_conv || conv2d){
         if (task_cnt == 0){
           cin_load_ddr_read(global_cin, cin_burst_buf_ping, LAYER_IN_H_HW, LAYER_IN_W_HW, LAYER_IN_NUM_T, LAYER_IN_H_T, LAYER_IN_W_T, FILTER_S, cin_offset, in_num_iter, in_h_iter, in_w_iter, max_pool);
-#ifdef DEBUG
-          for (int o = 0; o < LAYER_IN_NUM_T / POOL_LANE; o++)
-            for (int h = 0; h < LAYER_IN_H_T + FILTER_S - 1; h++)
-              for (int w = 0; w < LAYER_IN_W_T + FILTER_S - 1; w++){
-                uint idx_tmp = h * (LAYER_IN_W_T + FILTER_S - 1) * LAYER_IN_NUM_T + w * LAYER_IN_NUM_T + o * POOL_LANE;
-                bus_t0 wide_tmp = cin_burst_buf_ping[idx_tmp / BUS_PACK_FACTOR0];
-                ap_uint<32*8> mid_tmp;
-                switch((idx_tmp % BUS_PACK_FACTOR0) / POOL_LANE){
-                  case 0:
-                    mid_tmp = wide_tmp(32*8-1,0);
-                    break;
-                  case 1:
-                    mid_tmp = wide_tmp(32*8*2-1,32*8);
-                    break;
-                }
-                ap_uint<32> short_tmp = mid_tmp(32-1,0);
-                float short_tmp_f = Reinterpret<float>(short_tmp);
-                if (o == 0){
-                  cout << "cin_load: " << short_tmp_f << endl;
-                }
-              }
-#endif          
         } else {
           if (task_cnt % 2 == 1){
             cin_load_ddr_read(global_cin, cin_burst_buf_pong, LAYER_IN_H_HW, LAYER_IN_W_HW, LAYER_IN_NUM_T, LAYER_IN_H_T, LAYER_IN_W_T, FILTER_S, cin_offset, in_num_iter, in_h_iter, in_w_iter, max_pool);
@@ -492,9 +451,6 @@ void weight_load_depth_conv_weight_write(
     int p = 0;
     int q = 0;
     bool done = 0;
-//    for (int ii = 0; ii < LAYER_IN_NUM_T / SIMD_LANE; ii++)
-//      for (int p = 0; p < FILTER_S1; p++)
-//        weight_write_loop1: for (int q = 0; q < FILTER_S1; q++){
     while(!done){
 #pragma HLS PIPELINE II=1
       uint local_w_idx = p * FILTER_S1 * LAYER_IN_NUM_T + q * LAYER_IN_NUM_T + ii * SIMD_LANE;
@@ -608,9 +564,6 @@ void weight_load_depth_conv_weight_write(
       }           
 #endif         
       fifo_depth_conv_weight.write(fifo_w_data);
-//    for (int ii = 0; ii < LAYER_IN_NUM_T / SIMD_LANE; ii++)
-//      for (int p = 0; p < FILTER_S1; p++)
-//        weight_write_loop1: for (int q = 0; q < FILTER_S1; q++){
       q++;
       if (q == FILTER_S1){
         q = 0;
@@ -801,10 +754,6 @@ void weight_load_conv_weight_write(
       }           
 #endif          
       fifo_conv_weight.write(fifo_w_data);
-//  	for (int oo = 0; oo < LAYER_OUT_NUM_T; oo++){
-//      for (int p = 0; p < FILTER_S2; p++)
-//        for (int q = 0; q < FILTER_S2; q++)
-//          weight_write_loop2: for (int ii = 0; ii < LAYER_IN_NUM_T / SIMD_LANE; ii++){
 
       ii++;
       if (ii == LAYER_IN_NUM_T / SIMD_LANE){
@@ -1257,9 +1206,6 @@ void inter_load(
     if ((max_pool && out_num_iter == 0) || conv2d || separable_conv){
       switch(INTER_LOAD_EN){
         case 0:
-//          for (int o = 0; o < LAYER_IN_NUM_T / DEPTH_CONV_LANE; o++)
-//            for (int h = 0; h < LAYER_IN_H_T + FILTER_S - 1; h++)
-//              for (int w = 0; w < LAYER_IN_W_T + FILTER_S - 1; w++){
         {
           int o = 0;
           int h = 0;
@@ -1269,13 +1215,6 @@ void inter_load(
 #pragma HLS PIPELINE II=1
             CinLoadData0Type tmp = fifo_cin.read();
             fifo_cout.write(tmp);
-#ifdef DEBUG
-                if (in_num_iter == 0 && out_num_iter == 0 && in_h_iter == 0 && in_w_iter == 0){
-                  ap_uint<32> first_tmp = tmp(31, 0);
-                  float first_tmp_f = Reinterpret<float>(first_tmp);
-                  cout << "inter_load_cin: " << first_tmp_f << endl;
-                }
-#endif                  
             w++;
             if (w == LAYER_IN_W_T + FILTER_S - 1){
               w = 0;
@@ -1298,9 +1237,6 @@ void inter_load(
           int h = 0;
           int w = 0;
           bool done1 = 0;
-//          for (int o = 0; o < LAYER_IN_NUM_T / INTER_LOAD_LANE; o++)
-//            for (int h = 0; h < LAYER_IN_H_T + FILTER_S - 1; h++)
-//              for (int w = 0; w < LAYER_IN_W_T + FILTER_S - 1; w++){
           while(!done1){
 #pragma HLS PIPELINE II=1
             InterLoadData0Type tmp;
@@ -1310,13 +1246,6 @@ void inter_load(
             } else {
               tmp = 0;
             }
-#ifdef DEBUG
-                if (in_num_iter == 0 && out_num_iter == 0 && in_h_iter == 0 && in_w_iter == 0){
-                  ap_uint<32> first_tmp = tmp(31, 0);
-                  float first_tmp_f = Reinterpret<float>(first_tmp);
-                  cout << "inter_load_cin: " << first_tmp_f << endl;
-                }
-#endif                  
             fifo_cout.write(tmp);              
 
             w++;
@@ -1466,35 +1395,18 @@ void depth_conv(
     bool conv2d = (DEPTH_CONV_EN == 0) && (CONV_EN == 1);
     bool max_pool = (DEPTH_CONV_EN == 0) && (CONV_EN == 0);
   
-#ifdef DEBUG
-    uint depth_conv_cout_cnt = 0;
-#endif  
     switch(DEPTH_CONV_EN){
       case 0:
         // bypass this module
         if ((max_pool && out_num_iter == 0) || conv2d){
-#ifdef DEBUG
-          ofstream debug_output;
-          if (max_pool && in_num_iter == 0)
-            debug_output.open("max_pool_cin_path.dat");
-#endif          
           int o = 0;
           int h = 0;
           int w = 0;
           bool done1 = 0;
           while(!done1){
-//          for (int o = 0; o < LAYER_IN_NUM_T / DEPTH_CONV_LANE; o++)
-//            for (int h = 0; h < LAYER_IN_H_T + FILTER_S - 1; h++)
-//              for (int w = 0; w < LAYER_IN_W_T + FILTER_S - 1; w++){
 #pragma HLS PIPELINE II=1
             CinLoadData0Type tmp = fifo_cin.read();
             fifo_cout.write(tmp);
-#ifdef DEBUG
-            data_t0 tmpf = Reinterpret<data_t0>(tmp);
-            if (max_pool && in_num_iter == 0 && o == 1)
-              debug_output << tmpf << endl;
-            depth_conv_cout_cnt++;
-#endif
             w++;
             if (w == LAYER_IN_W_T + FILTER_S - 1){
               w = 0;
@@ -1514,9 +1426,6 @@ void depth_conv(
       case 1:
       {        
         // load weights
-//        for (int o = 0; o < LAYER_IN_NUM_T / DEPTH_CONV_LANE; o++){        
-//          for (int p = 0; p < FILTER_S1; p++)
-//            for (int q = 0; q < FILTER_S1; q++){
         int o = 0;
         int p = 0;
         int q = 0;
@@ -1545,18 +1454,6 @@ void depth_conv(
             }
           }
         }
-
-#ifdef DEBUG
-          if (in_num_iter == 0 && out_num_iter == 0 && in_h_iter == 0 && in_w_iter == 0){
-            ofstream debug_output("depth_weights.dat");
-            for (int p = 0; p < FILTER_S1; p++)
-              for (int q = 0; q < FILTER_S1; q++){
-                debug_output << weight_buf[0][0][p][q] << endl;
-                cout << "depth_weights: " << weight_buf[0][0][p][q] << endl;
-              }
-            debug_output.close();
-          }
-#endif          
 
         // compute
         if (FILTER_S1 == 1){
@@ -2013,10 +1910,6 @@ void conv(
         conv2d = (DEPTH_CONV_EN == 0) && (CONV_EN == 1);
         max_pool = (DEPTH_CONV_EN == 0) && (CONV_EN == 0);
 
-//        for (int in_h_iter = 0; in_h_iter < LAYER_IN_H; in_h_iter += LAYER_IN_H_T)
-//          for (int in_w_iter = 0; in_w_iter < LAYER_IN_W; in_w_iter += LAYER_IN_W_T)
-//            for (int out_num_iter = 0; out_num_iter < LAYER_OUT_NUM; out_num_iter += LAYER_OUT_NUM_T)
-//              for (int in_num_iter = 0; in_num_iter < LAYER_IN_NUM; in_num_iter += LAYER_IN_NUM_T){
         int in_h_iter = 0;
         int in_w_iter = 0;
         int out_num_iter = 0;
@@ -2024,9 +1917,6 @@ void conv(
         bool done1 = 0;
         while(!done1){
           if (max_pool && out_num_iter == 0){
-//                  for (int o = 0; o < LAYER_IN_NUM_T / CONV_LANE; o++)
-//                    for (int h = 0; h < LAYER_IN_H_T + FILTER_S - 1; h++)
-//                      for (int w = 0; w < LAYER_IN_W_T + FILTER_S - 1; w++){
             int o = 0;
             int h = 0;
             int w = 0;
@@ -2051,10 +1941,6 @@ void conv(
               }
             }
           }
-//        for (int in_h_iter = 0; in_h_iter < LAYER_IN_H; in_h_iter += LAYER_IN_H_T)
-//          for (int in_w_iter = 0; in_w_iter < LAYER_IN_W; in_w_iter += LAYER_IN_W_T)
-//            for (int out_num_iter = 0; out_num_iter < LAYER_OUT_NUM; out_num_iter += LAYER_OUT_NUM_T)
-//              for (int in_num_iter = 0; in_num_iter < LAYER_IN_NUM; in_num_iter += LAYER_IN_NUM_T){
           in_num_iter += LAYER_IN_NUM_T;
           if (in_num_iter == LAYER_IN_NUM){
             in_num_iter = 0;
@@ -2193,9 +2079,6 @@ void relu(
       case 0: 
         // bypass this module
         if ((max_pool && out_num_iter == 0) || (!max_pool && (in_num_iter + LAYER_IN_NUM_T >= LAYER_IN_NUM))){
-//          for (int o = 0; o < LAYER_OUT_NUM_T / RELU_LANE; o++)
-//            for (int h = 0; h < LAYER_IN_H_T / stride + FILTER_S - 1; h++)
-//              for (int w = 0; w < LAYER_IN_W_T / stride + FILTER_S - 1; w++){
           int o = 0;
           int h = 0;
           int w = 0;
@@ -2246,9 +2129,6 @@ void relu(
           int w_bound = LAYER_IN_W_T / STRIDE;
           int h_bound = LAYER_IN_H_T / STRIDE;
 
-//          for (int o = 0; o < LAYER_OUT_NUM_T / RELU_LANE; o++){             
-//            for (int h = 0; h < LAYER_IN_H_T / STRIDE; h++)
-//              for (int w = 0; w < LAYER_IN_W_T / STRIDE; w++){
           while(!done2){
 #pragma HLS PIPELINE II=1
             ConvData0Type cin_tmp = fifo_cin.read();
@@ -2258,13 +2138,6 @@ void relu(
               cin_buf[lane] = Reinterpret<data_t0>(u32_tmp);
               cin_tmp = cin_tmp >> DATA_W0;
             }
-#ifdef DEBUG
-//              if (out_num_iter == 0 && in_h_iter == 0 && in_w_iter == 0){
-//                if (h == 0 && w == 0){
-//                  cout << "before relu first one: " << cin_buf[0] << endl;
-//                }
-//              }
-#endif            
             for (int lane = 0; lane < RELU_LANE; lane++){
 #pragma HLS UNROLL              
               data_t0 tmp = cin_buf[lane] + bias_buf[o][lane];
@@ -2292,9 +2165,6 @@ void relu(
             );
             fifo_cout.write(wide_tmp);
 
-//          for (int o = 0; o < LAYER_OUT_NUM_T / RELU_LANE; o++){             
-//            for (int h = 0; h < LAYER_IN_H_T / STRIDE; h++)
-//              for (int w = 0; w < LAYER_IN_W_T / STRIDE; w++){
             w++;
             if (w == w_bound){
               w = 0;
@@ -2424,7 +2294,6 @@ void pool(
     ap_uint<1>  POOL_EN          = LAYER_EN[3];
     ap_uint<1>  UP_SAMPLE_EN     = LAYER_EN[4]; // reserved
   
-//    bool en = POOL_EN || (POOL_EN == 0 && STRIDE == 2);
     bool en = POOL_EN;
     bool separable_conv = (DEPTH_CONV_EN == 1) && (CONV_EN == 1);
     bool conv2d = (DEPTH_CONV_EN == 0) && (CONV_EN == 1);
@@ -2433,9 +2302,6 @@ void pool(
     switch(en){
       case 0:       
         if (in_num_iter + LAYER_IN_NUM_T >= LAYER_IN_NUM){
-//          for (int o = 0; o < LAYER_OUT_NUM_T / POOL_LANE; o++)
-//            for (int h = 0; h < LAYER_IN_H_T / STRIDE; h++)
-//              for (int w = 0; w < LAYER_IN_W_T / STRIDE; w++){
           int o = 0;
           int h = 0;
           int w = 0;
@@ -2467,9 +2333,7 @@ void pool(
         break;
       case 1:
         if ((max_pool && out_num_iter == 0) || (!max_pool && (in_num_iter + LAYER_IN_NUM_T >= LAYER_IN_NUM))){
-//          for (int o = 0; o < LAYER_OUT_NUM_T / POOL_LANE; o++){
           maxpool_w2 <data_t0, OUT_H_T, OUT_W_T, POOL_LANE, 2, DATA_W0> (fifo_cin, fifo_cout, STRIDE, POOL_EN, LAYER_OUT_NUM_T, LAYER_IN_H_T);
-//          }
         }
         break;
     } 
@@ -2588,8 +2452,6 @@ void inter_write(
     ap_uint<1>  BIAS_EN          = LAYER_EN[5]; 
     ap_uint<1>  INTER_LOAD_EN    = LAYER_EN[6];
     ap_uint<1>  INTER_WRITE_EN   = LAYER_EN[7];
-  //  ap_uint<1>  INTER_LOAD_EN    = 0;
-  //  ap_uint<1>  INTER_WRITE_EN   = 0;
   
     uint FILTER_S = (DEPTH_CONV_EN == 1)? (uint)FILTER_S1: (CONV_EN == 1)? (uint)FILTER_S2: 1;
     bool separable_conv = (DEPTH_CONV_EN == 1) && (CONV_EN == 1);
@@ -2604,9 +2466,6 @@ void inter_write(
     switch(en){
       case 0:
         if (in_num_iter + LAYER_IN_NUM_T >= LAYER_IN_NUM){
-//          for (int o = 0; o < LAYER_OUT_NUM_T / DEPTH_CONV_LANE; o++)
-//            for (int h = 0; h < LAYER_IN_H_T; h++)
-//              for (int w = 0; w < LAYER_IN_W_T; w++){
           int o = 0;
           int h = 0;
           int w = 0;
@@ -2645,9 +2504,6 @@ void inter_write(
         break;
       case 1:
         if ((max_pool && out_num_iter == 0) || (!max_pool && (in_num_iter + LAYER_IN_NUM_T >= LAYER_IN_NUM))){
-//          for (int o = 0; o < LAYER_OUT_NUM_T / INTER_LOAD_LANE; o++)
-//            for (int h = 0; h < LAYER_IN_H_T / 2; h++)
-//              for (int w = 0; w < LAYER_IN_W_T / 2; w++){
           int o = 0;
           int h = 0;
           int w = 0;
@@ -2704,11 +2560,6 @@ void inter_write(
       }
     }
   }
-#ifdef DEBUG
-//  if (INTER_WRITE_EN == 1){
-//    cout << "inter write: " << fifo_write_cnt << endl;
-//  }
-#endif
 }
 
 /**
@@ -2742,7 +2593,6 @@ void cout_write_fifo_read(
     switch(en){
       case 0:
         {
-//        if (in_num_iter + LAYER_IN_NUM_T >= LAYER_IN_NUM){
           int o = 0;
           int h = 0;
           int w = 0;
@@ -2752,9 +2602,6 @@ void cout_write_fifo_read(
 #pragma HLS DEPENDENCE INTER false variable=cout_burst_buf
             uint local_cout_idx = h * LAYER_IN_W_T * LAYER_OUT_NUM_T + w * LAYER_OUT_NUM_T + o * POOL_LANE;
             bus_t0 wide_tmp = cout_burst_buf[local_cout_idx / BUS_PACK_FACTOR0];
-#ifdef DEBUG
-//                  cout << "data_write index: " << local_cout_idx / BUS_PACK_FACTOR0 << endl;
-#endif                  
             for (int lane = 0; lane < DATA_SEL_FACTOR0; lane++){
 #pragma HLS UNROLL
               cout_buf[lane] = wide_tmp(DATA_W0 * POOL_LANE - 1, 0);
@@ -2762,11 +2609,9 @@ void cout_write_fifo_read(
             }
             PoolData0Type tmp = fifo_cout.read();                  
             if (in_h_iter + h < LAYER_OUT_H && in_w_iter + w < LAYER_OUT_W)
-//              cout_buf[oo] = tmp;
               cout_buf[(local_cout_idx % BUS_PACK_FACTOR0) / POOL_LANE] = tmp;
             else
               cout_buf[(local_cout_idx % BUS_PACK_FACTOR0) / POOL_LANE] = tmp;
-//              cout_buf[oo] = 0;
           
             bus_t0 wide_pack = (
 #if DATA_SEL_FACTOR0 == 1
@@ -2787,9 +2632,6 @@ void cout_write_fifo_read(
             );
             cout_burst_buf[local_cout_idx / BUS_PACK_FACTOR0] = wide_pack;
 
-//            for (int o = 0; o < LAYER_OUT_NUM_T / POOL_LANE; o++)
-//              for (int h = 0; h < LAYER_IN_H_T; h++)
-//                for (int w = 0; w < LAYER_IN_W_T; w++){
             w++;
             if (w == LAYER_IN_W_T){
               w = 0;
@@ -2808,7 +2650,6 @@ void cout_write_fifo_read(
         break;
         }
       case 1:
-//        if ((max_pool && out_num_iter == 0) || (!max_pool && (in_num_iter + LAYER_IN_NUM_T >= LAYER_IN_NUM))){
         {
           int o = 0;
           int h = 0;
@@ -2819,9 +2660,6 @@ void cout_write_fifo_read(
 #pragma HLS DEPENDENCE INTER false variable=cout_burst_buf                  
             uint local_cout_idx = h * (LAYER_IN_W_T / 2) * LAYER_OUT_NUM_T + w * LAYER_OUT_NUM_T + o * POOL_LANE;
             bus_t0 wide_tmp = cout_burst_buf[local_cout_idx / BUS_PACK_FACTOR0];
-#ifdef DEBUG
-//                  cout << "data_write index: " << local_cout_idx / BUS_PACK_FACTOR0 << endl;
-#endif                                   
             for (int lane = 0; lane < DATA_SEL_FACTOR0; lane++){
 #pragma HLS UNROLL
               cout_buf[lane] = wide_tmp(DATA_W0 * POOL_LANE - 1, 0);
@@ -2851,9 +2689,6 @@ void cout_write_fifo_read(
             );
             cout_burst_buf[local_cout_idx / BUS_PACK_FACTOR0] = wide_pack;
 
-//            for (int o = 0; o < LAYER_OUT_NUM_T / POOL_LANE; o++)
-//              for (int h = 0; h < LAYER_IN_H_T / 2; h++) // default maxpool window is 2
-//                for (int w = 0; w < LAYER_IN_W_T / 2; w++){
             w++;
             if (w == LAYER_IN_W_T / 2){
               w = 0;
@@ -2882,8 +2717,6 @@ void cout_write_ddr_write(
   bus_t0 *global_cout,
   bool en,
   bool max_pool,
-//  uint in_num_iter,
-//  uint out_num_iter,
   uint num_iter,
   uint in_h_iter,
   uint in_w_iter,
@@ -2901,7 +2734,6 @@ void cout_write_ddr_write(
   if (run){
     switch(en){
       case 0:
-//        if (in_num_iter + LAYER_IN_NUM_T >= LAYER_IN_NUM){
         {
           // write out 
           for (int hh  = 0; hh < LAYER_IN_H_T; hh++){
@@ -2913,14 +2745,10 @@ void cout_write_ddr_write(
         }
         break;
       case 1:
-//        if ((max_pool && out_num_iter == 0) || (!max_pool && (in_num_iter + LAYER_IN_NUM_T >= LAYER_IN_NUM))){
         {
           for (int hh = 0; hh < LAYER_IN_H_T / 2; hh++){
             uint h = in_h_iter / 2 + hh;
             uint global_cout_idx;
-//            if (max_pool)
-//              global_cout_idx = in_num_iter / LAYER_IN_NUM_T * LAYER_OUT_H_HW * LAYER_OUT_W_HW * LAYER_IN_NUM_T + h * LAYER_OUT_W_HW * LAYER_OUT_NUM_T + in_w_iter / 2 * LAYER_OUT_NUM_T + cout_offset;
-//            else
             global_cout_idx = num_iter / LAYER_OUT_NUM_T * LAYER_OUT_H_HW * LAYER_OUT_W_HW * LAYER_OUT_NUM_T + h * LAYER_OUT_W_HW * LAYER_OUT_NUM_T + in_w_iter / 2 * LAYER_OUT_NUM_T + cout_offset;
             uint local_cout_idx = hh * LAYER_IN_W_T / 2 * LAYER_OUT_NUM_T;
             memcpy((void*)&global_cout[global_cout_idx / BUS_PACK_FACTOR0], (void*)&cout_burst_buf[local_cout_idx / BUS_PACK_FACTOR0], sizeof(data_t0) * LAYER_IN_W_T / 2 * LAYER_OUT_NUM_T);
@@ -2944,8 +2772,6 @@ void cout_write(
   bus_t0 cout_burst_buf_pong[OUT_H_T * OUT_W_T * OUT_NUM_T / BUS_PACK_FACTOR0];
 
   // iterators
-//  uint in_num_iter = 0;
-//  uint out_num_iter = 0;
   uint num_iter = 0;
   uint in_h_iter = 0;
   uint in_w_iter = 0;
@@ -2953,8 +2779,6 @@ void cout_write(
 
   uint cout_offset = 0;
 
-//  uint in_num_iter_prev = 0;
-//  uint out_num_iter_prev = 0;
   uint num_iter_prev = 0;
   uint in_h_iter_prev = 0;
   uint in_w_iter_prev = 0;
@@ -3073,22 +2897,11 @@ void cout_write(
     INTER_WRITE_EN   = LAYER_EN[7];
   
     cout_offset = COUT_OFFSET;
-#ifdef DEBUG
-//  cout << COUT_OFFSET << endl;
-#endif
-
-#ifdef DEBUG
-//  cout << "data_write:" << endl;
-#endif
     bool en = POOL_EN || (POOL_EN == 0 && STRIDE == 2);
     bool separable_conv = (DEPTH_CONV_EN == 1) && (CONV_EN == 1);
     bool conv2d = (DEPTH_CONV_EN == 0) && (CONV_EN == 1);
     bool max_pool = (DEPTH_CONV_EN == 0) && (CONV_EN == 0);
   
-#ifdef DEBUG
-    uint data_write_cout_cnt = 0;
-#endif   
-
     if (INTER_WRITE_EN == 0){
 
       if (task_cnt == 0){
@@ -3120,8 +2933,6 @@ void cout_write(
             cout_offset_prev,
             !write_done
           );
-          
-//          write_done = 1;
   
         } else {
           cout_write_fifo_read(
@@ -3144,7 +2955,6 @@ void cout_write(
             !write_done
           );
   
-//          write_done = 1;
         }
       }
     
@@ -3154,11 +2964,9 @@ void cout_write(
 
       switch(en){
         case 0:
-//          if (in_num_iter + LAYER_IN_NUM_T >= LAYER_IN_NUM){
           {        
             task_cnt++;
             num_iter_prev = num_iter;
-//            out_num_iter_prev = out_num_iter;
             in_h_iter_prev = in_h_iter;
             in_w_iter_prev = in_w_iter;
             en_prev = en;
@@ -3176,11 +2984,9 @@ void cout_write(
           }
           break;
         case 1:
-//          if ((max_pool && out_num_iter == 0) || (!max_pool && (in_num_iter + LAYER_IN_NUM_T >= LAYER_IN_NUM))){
           {
             task_cnt++;
             num_iter_prev = num_iter;
-//            out_num_iter_prev = out_num_iter;
             in_h_iter_prev = in_h_iter;
             in_w_iter_prev = in_w_iter;
             en_prev = en;
@@ -3199,7 +3005,6 @@ void cout_write(
           break;
       }
     }
-//    task_cnt++;
 
     if (max_pool){
       num_iter += LAYER_IN_NUM_T;
@@ -3241,28 +3046,6 @@ void cout_write(
       }
     }
 
-//    in_num_iter += LAYER_IN_NUM_T;
-//    if (in_num_iter >= LAYER_IN_NUM){
-//      in_num_iter = 0;
-//      in_h_iter += LAYER_IN_H_T;
-//      if (in_h_iter >= LAYER_IN_H){
-//        in_h_iter = 0;
-//        in_w_iter += LAYER_IN_W_T;
-//        if (in_w_iter >= LAYER_IN_W){
-//          in_w_iter = 0;
-//          out_num_iter += LAYER_OUT_NUM_T;
-//          if (out_num_iter >= LAYER_OUT_NUM){
-//            out_num_iter = 0;
-//            layer_iter += 1;
-//            layer_start = 1;
-//            if (layer_iter == LAYER_BATCH){              
-//              layer_iter = 0;
-//              done = 1;
-//            }
-//          }
-//        }
-//      }
-//    }
   }
 
   if (INTER_WRITE_EN == 0){
@@ -3487,7 +3270,6 @@ void top_kernel(
   int stage2_iter = init_inst[3];
 
   int layer_num = vgg_layers + stage1_layers * 2 + stage2_layers * 2 * stage2_iter;
-//  int layer_num = 2;
 
   unsigned int config[CONFIG_PARAMS * MAX_LAYER_BATCH]; 
   int cur_layer_batch = 1;
@@ -3495,22 +3277,12 @@ void top_kernel(
   int layer_id = 0;
   while(layer_id < layer_num){   
     cur_layer_batch = nxt_layer_batch;
-    cout << layer_id << " " << cur_layer_batch << endl;
+//    cout << layer_id << " " << cur_layer_batch << endl;
     memcpy((void*)config, (void*)(&layer_config[4 + CONFIG_PARAMS * layer_id]), sizeof(unsigned int) * CONFIG_PARAMS * cur_layer_batch);
-//    nxt_layer_batch = config[CONFIG_PARAMS * cur_layer_batch - 1];
-//    config[CONFIG_PARAMS - 1] = cur_layer_batch;
     nxt_layer_batch = config[CONFIG_PARAMS * (cur_layer_batch - 1) + 25 - 1];
     config[25 - 1] = cur_layer_batch;
     
-    // compute
-//    if (layer_id == 15){
-//      cout << "debug point" << endl;
-//    }
-//    if (layer_id == 0){      
-//      cout << layer_id << " " << cur_layer_batch << endl;
-      engine(global_cin, global_weight, global_bias, global_cout, config);
-//    }
+    engine(global_cin, global_weight, global_bias, global_cout, config);
     layer_id += cur_layer_batch;
-//    cout << nxt_layer_batch << endl;
   }
 }
