@@ -1,0 +1,7 @@
+{
+  "VGG_LAYERS": 13,
+  "STAGE1_LAYERS": 5,
+  "STAGE1_ITER": 1,
+  "STAGE2_LAYERS": 5,
+  "STAGE2_ITER": 5
+}
