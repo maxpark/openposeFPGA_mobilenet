@@ -6,7 +6,7 @@ This repository includes the code to build FPGA accelerators for the OpenPose ap
 The original Openpose uses VGG network. In this project, we use the modified network that replaces the original VGG network with Mobilenet that helps cut down the computation cost dramatically. 
 The network we used is from the repo [here](https://github.com/ildoonet/tf-pose-estimation).
 
-The openpose algorithm contains two parts, the neural network and the graph processing. The current FPGA implementation accelerates teh neural network processing.
+The openpose algorithm contains two parts, the neural network and the graph processing. The current FPGA implementation accelerates the processing of neural network.
 
 In this repo, we build an HLS-based FPGA accelerator for the OpenPose application. The target of this project is to achieve real-time processing with high energy efficiency. The code in this repository has been tested with Xilinx SDx 2018.3 on Xilinx VCU1525 platform.
 
