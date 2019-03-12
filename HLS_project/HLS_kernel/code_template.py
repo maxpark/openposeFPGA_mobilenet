@@ -1783,38 +1783,24 @@ def kernel(desp, config):
   var_prefix = 'U%s' %(desp['KERNEL_ID']) + '_'
   code = []
   # kernel
-#  code.append('/*\n')
+  code.append('void kernel(\n')
+  code.append(indent(1) + 'stream<ap_uint<%sDATA0_WIDTH * %sDATA0_FC_SIMD_FACTOR> > &fifo_cin,\n' % (var_prefix, var_prefix))
+  code.append(indent(1) + 'stream<ap_uint<%sDATA1_WIDTH * %sDATA1_FC_SIMD_FACTOR> > &fifo_weight,\n' % (var_prefix, var_prefix))
+  code.append(indent(1) + 'stream<ap_uint<%sDATA2_WIDTH * %sDATA2_FC_SIMD_FACTOR> > &fifo_cout,\n' % (var_prefix, var_prefix))
+  code.append(indent(1) + 'stream<%sConfigInst> &fifo_kernel_config_in,\n' % (var_prefix))
+  code.append(indent(1) + 'stream<%sConfigInst> &fifo_kernel_config_out\n' % (var_prefix))
+  code.append('){\n')
 #  code.append('void ' + var_prefix + 'kernel(\n')
 #  idx = 0
 #  for op_name in desp['OP_NAME']:
-#    code.append(indent(1) + 'stream<ap_uint<%sDATA%d_WIDTH * %sDATA%d_FC_SIMD_FACTOR> > &fifo_trasnfer_%s,\n' % (var_prefix, idx, var_prefix, idx, op_name))
+#    code.append(indent(1) + var_prefix + 'bus_t' + str(idx) + '* ' + op_name + ',\n')
 #    idx += 1
 #  for res_name in desp['RES_NAME']:
-#    code.append(indent(1) + 'stream<ap_uint<%sDATA%d_WIDTH * %sDATA%d_FC_SIMD_FACTOR> > &fifo_transfer_%s,\n' % (var_prefix, idx, var_prefix, idx, res_name))
+#    code.append(indent(1) + var_prefix + 'bus_t' + str(idx) + '* ' + res_name + ',\n')
 #    idx += 1
-#  code.append(indent(1) + 'uint LAYER_IN_NUM,\n')
-#  code.append(indent(1) + 'uint LAYER_OUT_NUM,\n')
-#  code.append(indent(1) + 'uint LAYER_IN_IMG_H,\n')
-#  code.append(indent(1) + 'uint LAYER_IN_IMG_W,\n')
-#  code.append(indent(1) + 'uint LAYER_OUT_IMG_H,\n')
-#  code.append(indent(1) + 'uint LAYER_OUT_IMG_W,\n')
-#  code.append(indent(1) + 'uint LAYER_FILTER_S\n')
+#  code.append(indent(1) + 'bool init,\n')
+#  code.append(indent(1) + 'unsigned int FILTER_S\n')
 #  code.append('){\n')
-#
-#  code.append('}')
-#  code.append('*/')
-
-  code.append('void ' + var_prefix + 'kernel(\n')
-  idx = 0
-  for op_name in desp['OP_NAME']:
-    code.append(indent(1) + var_prefix + 'bus_t' + str(idx) + '* ' + op_name + ',\n')
-    idx += 1
-  for res_name in desp['RES_NAME']:
-    code.append(indent(1) + var_prefix + 'bus_t' + str(idx) + '* ' + res_name + ',\n')
-    idx += 1
-  code.append(indent(1) + 'bool init,\n')
-  code.append(indent(1) + 'unsigned int FILTER_S\n')
-  code.append('){\n')
   code.append('#pragma HLS DATAFLOW\n\n')
 
   code.append(indent(1) + '// FIFOs\n')
@@ -1949,29 +1935,32 @@ def kernel(desp, config):
           inter_idx += 1
   code.append('\n')
 
-  code.append(indent(1) + 'stream<%sConfigInst> fifo_kernel_config_in;\n' % (var_prefix))
-  code.append('#pragma HLS STREAM variable=fifo_kernel_config_in depth=2\n')
-  code.append(indent(1) + 'stream<%sConfigInst> fifo_kernel_config_out;\n' % (var_prefix))
-  code.append('#pragma HLS STREAM variable=fifo_kernel_config_out depth=2\n\n')
+#  code.append(indent(1) + 'stream<%sConfigInst> fifo_kernel_config_in;\n' % (var_prefix))
+#  code.append('#pragma HLS STREAM variable=fifo_kernel_config_in depth=2\n')
+#  code.append(indent(1) + 'stream<%sConfigInst> fifo_kernel_config_out;\n' % (var_prefix))
+#  code.append('#pragma HLS STREAM variable=fifo_kernel_config_out depth=2\n\n')
 
   code.append(indent(1) + '// modules\n')
   idx = 0
   for op_name in desp['OP_NAME']:
     # feed_shim
-    code.append(indent(1) + var_prefix + 'DataFeed' + str(idx) + 'Head_Shim(\n')
-    code.append(indent(2) + op_name + ', fifo' + str(idx) + '_shim,\n')
-    if idx == 0:
-      code.append(indent(2) + '%sIN_NUM, %sOUT_NUM, %sIN_NUM_T, %sOUT_NUM_T, %sIN_IMG_H, %sIN_IMG_W, %sOUT_IMG_H, %sOUT_IMG_W, %sOUT_IMG_H_T, %sOUT_IMG_W_T, FILTER_S, %sSTRIDE, %sLAYER_BATCH,\n' % (var_prefix, var_prefix, var_prefix, var_prefix, var_prefix, var_prefix, var_prefix, var_prefix, var_prefix, var_prefix, var_prefix, var_prefix))
-      code.append(indent(2) + 'fifo_kernel_config_in\n')
-    else:
-      code.append(indent(2) + '%sIN_NUM, %sOUT_NUM, %sIN_NUM_T, %sOUT_NUM_T, %sIN_IMG_H, %sIN_IMG_W, %sOUT_IMG_H, %sOUT_IMG_W, %sOUT_IMG_H_T, %sOUT_IMG_W_T, FILTER_S, %sSTRIDE, %sLAYER_BATCH\n' % (var_prefix, var_prefix, var_prefix, var_prefix, var_prefix, var_prefix, var_prefix, var_prefix, var_prefix, var_prefix, var_prefix, var_prefix))
-    code.append(indent(1) + ');\n\n')
+#    code.append(indent(1) + var_prefix + 'DataFeed' + str(idx) + 'Head_Shim(\n')
+#    code.append(indent(2) + op_name + ', fifo' + str(idx) + '_shim,\n')
+#    if idx == 0:
+#      code.append(indent(2) + '%sIN_NUM, %sOUT_NUM, %sIN_NUM_T, %sOUT_NUM_T, %sIN_IMG_H, %sIN_IMG_W, %sOUT_IMG_H, %sOUT_IMG_W, %sOUT_IMG_H_T, %sOUT_IMG_W_T, FILTER_S, %sSTRIDE, %sLAYER_BATCH,\n' % (var_prefix, var_prefix, var_prefix, var_prefix, var_prefix, var_prefix, var_prefix, var_prefix, var_prefix, var_prefix, var_prefix, var_prefix))
+#      code.append(indent(2) + 'fifo_kernel_config_in\n')
+#    else:
+#      code.append(indent(2) + '%sIN_NUM, %sOUT_NUM, %sIN_NUM_T, %sOUT_NUM_T, %sIN_IMG_H, %sIN_IMG_W, %sOUT_IMG_H, %sOUT_IMG_W, %sOUT_IMG_H_T, %sOUT_IMG_W_T, FILTER_S, %sSTRIDE, %sLAYER_BATCH\n' % (var_prefix, var_prefix, var_prefix, var_prefix, var_prefix, var_prefix, var_prefix, var_prefix, var_prefix, var_prefix, var_prefix, var_prefix))
+#    code.append(indent(1) + ');\n\n')
 
     # feed_head
     feed_num = desp['OP_ENGINE_NUM'][idx]
     code.append(indent(1) + var_prefix + 'DataFeed' + str(idx) + 'Head(\n')
-    code.append(indent(2) + 'fifo%d_shim,\n' % (idx))
-#    code.append(indent(2) + 'init, FILTER_S,\n')
+#    code.append(indent(2) + 'fifo%d_shim,\n' % (idx))
+    if idx == 0:
+      code.append(indent(2) + 'fifo_cin,\n')
+    else:
+      code.append(indent(2) + 'fifo_weight,\n')
     for feed_group in range(desp['FC_SPLIT_FACTOR'][idx]):
       feed_id = feed_group * (desp['OP_ENGINE_NUM'][idx] / desp['FC_SPLIT_FACTOR'][idx])
       feed_id = int(feed_id)
@@ -2326,8 +2315,8 @@ def kernel(desp, config):
     for res_name in desp['RES_NAME']:
       fifo_in_id = feed_num - 1
       code.append(indent(1) + var_prefix + 'DataCollect' + str(idx) + 'Head(\n')
-#      code.append(indent(2) + res_name + ',\n')
-      code.append(indent(2) + 'fifo%d_shim,\n' % (idx))
+#      code.append(indent(2) + 'fifo%d_shim,\n' % (idx))
+      code.append(indent(2) + 'fifo_cout,\n')
       for feed_group in range(desp['FC_SPLIT_FACTOR'][idx]):
         feed_id = feed_group * (desp['RES_ENGINE_NUM'][idx - len(desp['OP_NAME'])] / desp['FC_SPLIT_FACTOR'][idx]) + desp['RES_ENGINE_NUM'][idx - len(desp['OP_NAME'])] / desp['FC_SPLIT_FACTOR'][idx] - 1
         feed_id = int(feed_id)
@@ -2338,13 +2327,13 @@ def kernel(desp, config):
       code.append(indent(2) + 'fifo_DataCollect%dEngine0_config_out\n' % (idx))
       code.append(indent(1) + ');\n\n')
 
-    # collecthead_shim
-      code.append(indent(1) + '%sDataCollect%dHead_Shim(\n' % (var_prefix, idx))
-      code.append(indent(2) + res_name + ',\n')
-      code.append(indent(2) + 'fifo%d_shim,\n' % (idx))
-      code.append(indent(2) + 'fifo_kernel_config_out,\n')
-      code.append(indent(2) + '%sIN_NUM, %sOUT_NUM, %sIN_NUM_T, %sOUT_NUM_T, %sIN_IMG_H, %sIN_IMG_W, %sOUT_IMG_H, %sOUT_IMG_W, %sOUT_IMG_H_T, %sOUT_IMG_W_T, FILTER_S, %sSTRIDE\n' % (var_prefix, var_prefix, var_prefix, var_prefix, var_prefix, var_prefix, var_prefix, var_prefix, var_prefix, var_prefix, var_prefix))
-      code.append(indent(1) + ');\n\n')
+#    # collecthead_shim
+#      code.append(indent(1) + '%sDataCollect%dHead_Shim(\n' % (var_prefix, idx))
+#      code.append(indent(2) + res_name + ',\n')
+#      code.append(indent(2) + 'fifo%d_shim,\n' % (idx))
+#      code.append(indent(2) + 'fifo_kernel_config_out,\n')
+#      code.append(indent(2) + '%sIN_NUM, %sOUT_NUM, %sIN_NUM_T, %sOUT_NUM_T, %sIN_IMG_H, %sIN_IMG_W, %sOUT_IMG_H, %sOUT_IMG_W, %sOUT_IMG_H_T, %sOUT_IMG_W_T, FILTER_S, %sSTRIDE\n' % (var_prefix, var_prefix, var_prefix, var_prefix, var_prefix, var_prefix, var_prefix, var_prefix, var_prefix, var_prefix, var_prefix))
+#      code.append(indent(1) + ');\n\n')
     idx += 1
 
   code.append('}\n')
