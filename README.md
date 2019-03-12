@@ -39,8 +39,14 @@ And you need dependencies below.
 - python3
 - Xilinx SDAccel 2018.3
 
-1. **Instruction Generation**
+1. **Instruction and Data Generation**
 
+We will need to generate the instructions required for the FPGA kernel and pre-process the input data and weights of the network.
+
+First, switch to the instruction generator folder.
+```
+cd $PRJ_PATH/inst_gen
+```
 Please modify the model configuration file `inst_gen/openpose.model` according to your network configuration. Run the following command to parse the model and generate the necessary files.
 ```
 python inst_parse.py -t ./tile.json -m ./openpose.model -mc ./network_topology.json -i ./input.json
@@ -50,6 +56,15 @@ There will be four files generated:
 - `params.h`: contains all the parameters required by the HLS kernel
 - `weight_offset.dat`: helps the host program to load the weights
 - `bias_offset.dat`: helps the host program to load the bias
+
+Next, switch to the data folder.
+```
+cd $PRJ_PATH/data
+```
+Run the command below to pre-process all the data.
+```
+python data_reorg.py -t ../inst_gen/tile.json -m ../inst_gen/openpose.model -mc ../inst_gen/network_topology.json -i ../inst_gen/input.json -w weight.bin -b bias.bin
+```
 
 2. **Build the HLS kernel**
 
@@ -69,11 +84,12 @@ It will take several minutes or so to finish the C simulation.
 
 3. **Build the SDx project**
 
-So far we have generated the HLS kernel files for the FPGA accelerator. Next, we will need to build the bistream of the FPGA kernel.
+So far we have generated the HLS kernel files for the FPGA accelerator. Next, we will need to build the bitstream of the FPGA kernel.
 
     3.1 Prepare the SDx kernel
 
-We need to combine all kernel files into one single file for SDx project. Switch to SDx project directory.
+We need to combine all kernel files into one single file for SDx project. 
+To start with, switch to SDx project directory.
 ```
 cd $PRJ_PATH/SDx_project
 ```
