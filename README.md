@@ -120,6 +120,14 @@ For running the kernel, use the command:
 ```
 
 ## Latest Features
+1. **Design space exploration engine**
+
+The folder `dse` contains scripts to perform the design space exploration. The script `des.py` is the single-thread version. And the script `dse_p.py` is the multi-threaded version. To perform design space exploration, run the command below:
+```
+python dse_p.py -m ../inst_gen/openpose.model -mc ../inst_gen/network_topology.json -i ../inst_gen/input.json -b ./vu9p.json
+```
+
+The optimal design parameters will be in the `opt_params.json`. 
 
 ## Design Details
 
