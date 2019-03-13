@@ -1,0 +1,11 @@
+{
+  "BOARD": "xcku060",
+  "LUT": 331680,
+  "FF": 663360,
+  "BRAM18K": 2160,
+  "DSP": 2760,
+  "LUT_THRES": 0.9,
+  "FF_THRES": 0.9,
+  "BRAM18K_THRES": 0.9,
+  "DSP_THRES": 1.0
+}
