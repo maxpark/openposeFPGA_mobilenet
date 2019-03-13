@@ -211,6 +211,8 @@ void cin_load(
   // on-chip buffer for cin data
   bus_t0 cin_burst_buf_ping[IN_NUM_T * (IN_H_T + K_T - 1) * (IN_W_T + K_T - 1) / BUS_PACK_FACTOR0];
   bus_t0 cin_burst_buf_pong[IN_NUM_T * (IN_H_T + K_T - 1) * (IN_W_T + K_T - 1) / BUS_PACK_FACTOR0];
+#pragma HLS RESOURCE variable=cin_burst_buf_ping core=XPM_MEMORY uram
+#pragma HLS RESOURCE variable=cin_burst_buf_pong core=XPM_MEMORY uram  
 
   // layer batch
   ap_uint<32> LAYER_BATCH = config[24];
@@ -963,6 +965,9 @@ void weight_load(
   bus_t1 weight_burst_buf1[IN_NUM_T * K_T * K_T / BUS_PACK_FACTOR1];
   bus_t1 weight_burst_buf2[OUT_NUM_T * IN_NUM_T * K_T * K_T / BUS_PACK_FACTOR1];
   bus_t2 bias_burst_buf[OUT_NUM_T / BUS_PACK_FACTOR2];
+#pragma HLS RESOURCE variable=weight_burst_buf1 core=XPM_MEMORY uram
+#pragma HLS RESOURCE variable=weight_burst_buf2 core=XPM_MEMORY uram  
+#pragma HLS RESOURCE variable=bias_burst_buf core=XPM_MEMORY ura#pragma HLS RESOURCE variable=bias_burst_buf core=XPM_MEMORY uramm
 
   // tiling iterators
 	uint in_num_iter = 0;
@@ -2770,6 +2775,8 @@ void cout_write(
 ){
   bus_t0 cout_burst_buf_ping[OUT_H_T * OUT_W_T * OUT_NUM_T / BUS_PACK_FACTOR0];
   bus_t0 cout_burst_buf_pong[OUT_H_T * OUT_W_T * OUT_NUM_T / BUS_PACK_FACTOR0];
+#pragma HLS RESOURCE variable=cout_burst_buf_ping core=XPM_MEMORY uram
+#pragma HLS RESOURCE variable=cout_burst_buf_pong core=XPM_MEMORY uram  
 
   // iterators
   uint num_iter = 0;

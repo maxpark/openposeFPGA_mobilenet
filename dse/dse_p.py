@@ -3,7 +3,6 @@ import json
 import argparse
 import copy
 import multiprocessing
-import pandas as pd
 import subprocess
 
 def list_split(ori_list, split_num):
@@ -752,11 +751,19 @@ def run(f_model, f_model_config, f_input_config, f_board):
 
   # Start the design space exploration
   # It works in a greedy fashion, as we will minimize the latency layer by layer.
+  opt_latency = np.inf
+  opt_DSP = np.inf
+  opt_BRAM18K = np.inf
+  opt_params = {}
+
   params_list = []
   for IN_H_T in list(filter(lambda x : network_in_h % x == 0 and x % 2 == 0, range(1, int(network_in_h / 8) + 1))): # upper_bound
     for IN_W_T in list(filter(lambda x : network_in_w % x == 0 and x % 2 == 0, range(1, int(network_in_w / 8) + 1))): # upper_bound
       for IN_NUM_T in list(filter(lambda x : network_channel_max % x == 0 and x % 16 == 0, range(1, 128 + 1))): # upper_bound
         for SIMD_LANE in list(filter(lambda x : IN_NUM_T % x == 0 and x % 2 == 0, range(1, min(IN_NUM_T, 8) + 1))):
+#          debug_cnt += 1
+#          print(debug_cnt)
+#          print(IN_NUM_T, IN_W_T, SIMD_LANE)
           params['LAYER_IN_H_T'] = IN_H_T
           params['LAYER_IN_W_T'] = IN_W_T
           params['LAYER_OUT_H_T'] = IN_H_T
@@ -764,7 +771,6 @@ def run(f_model, f_model_config, f_input_config, f_board):
           params['LAYER_IN_NUM_T'] = IN_NUM_T
           params['LAYER_OUT_NUM_T'] = IN_NUM_T
           params['SIMD_LANE'] = SIMD_LANE
-#          print(IN_H_T, IN_W_T, IN_NUM_T)
           tmp_params = dict(params)
           params_list.append(tmp_params)
 
@@ -772,17 +778,11 @@ def run(f_model, f_model_config, f_input_config, f_board):
   print('Parallelizing using %d processes...' % (num_processes))
 
   chunks = list_split(params_list, num_processes)
-#  print(len(chunks[0]))
   pool = multiprocessing.Pool(processes = num_processes)
   results = pool.starmap(param_sweep, [(chunk, config, model_config, layer_configs) for chunk in chunks])
-
-#  results = param_sweep(params_list, config, model_config, layer_configs)
+#  result = param_sweep(params_list, config, model_config, layer_configs)
 
   print('Aggregating results...')
-  opt_latency = np.inf
-  opt_DSP = np.inf
-  opt_BRAM18K = np.inf
-  opt_params = {}
   for result in results:
     cur_latency = result['opt_latency']
     cur_DSP = result['opt_DSP']
@@ -800,7 +800,12 @@ def run(f_model, f_model_config, f_input_config, f_board):
         opt_BRAM18K = cur_BRAM18K
         opt_params = cur_params
 
-  # print out results
+  opt_latency = result['opt_latency']
+  opt_DSP = result['opt_DSP']
+  opt_BRAM18K = result['opt_BRAM18K']
+  opt_params = result['opt_params']
+
+# print out results
   print("opt latency @(%d MHz): " % (opt_params['FRE']), opt_latency)
   opt_time = opt_latency / (opt_params['FRE'] * 1e6)
   opt_fps = 1 / opt_time
@@ -816,32 +821,28 @@ def run(f_model, f_model_config, f_input_config, f_board):
   model.close()
 
 def param_sweep(params_list, config, model_config, layer_configs):
-
   opt_latency = np.inf
   opt_DSP = np.inf
   opt_BRAM18K = np.inf
   opt_params = {}
 
-#  for IN_H_T in list(filter(lambda x : network_in_h % x == 0 and x % 2 == 0, range(1, int(network_in_h / 8) + 1))): # upper_bound
-#    for IN_W_T in list(filter(lambda x : network_in_w % x == 0 and x % 2 == 0, range(1, int(network_in_w / 8) + 1))): # upper_bound
-#      for IN_NUM_T in list(filter(lambda x : network_channel_max % x == 0 and x % 16 == 0, range(1, 128 + 1))): # upper_bound
-#        for SIMD_LANE in list(filter(lambda x : IN_NUM_T % x == 0 and x % 2 == 0, range(1, min(IN_NUM_T, 8) + 1))):
-  for params in params_list:
+  for params_t in params_list:
+    params = dict(params_t)
     IN_NUM_T = params['LAYER_IN_NUM_T']
+    IN_H_T = params['LAYER_IN_H_T']
     IN_W_T = params['LAYER_IN_W_T']
     SIMD_LANE = params['SIMD_LANE']
 #    print(IN_NUM_T, IN_W_T, SIMD_LANE)
-
     for SA_ROWS in list(filter(lambda x : IN_NUM_T % x == 0, range(1, IN_NUM_T + 1))):
       for SA_COLS in list(filter(lambda x : IN_W_T % x == 0, range(1, IN_W_T + 1))):
         for SA_SIMD_LANE in list(filter(lambda x : SIMD_LANE % x == 0, range(1, SIMD_LANE + 1))):
-#          params['LAYER_IN_H_T'] = IN_H_T
-#          params['LAYER_IN_W_T'] = IN_W_T
-#          params['LAYER_OUT_H_T'] = IN_H_T
-#          params['LAYER_OUT_W_T'] = IN_W_T
-#          params['LAYER_IN_NUM_T'] = IN_NUM_T
-#          params['LAYER_OUT_NUM_T'] = IN_NUM_T
-#          params['SIMD_LANE'] = SIMD_LANE
+          params['LAYER_IN_H_T'] = IN_H_T
+          params['LAYER_IN_W_T'] = IN_W_T
+          params['LAYER_OUT_H_T'] = IN_H_T
+          params['LAYER_OUT_W_T'] = IN_W_T
+          params['LAYER_IN_NUM_T'] = IN_NUM_T
+          params['LAYER_OUT_NUM_T'] = IN_NUM_T
+          params['SIMD_LANE'] = SIMD_LANE
           params['SA_ROWS'] = SA_ROWS
           params['SA_COLS'] = SA_COLS
           params['SA_SIMD_LANE'] = SA_SIMD_LANE
@@ -855,19 +856,31 @@ def param_sweep(params_list, config, model_config, layer_configs):
 
           # frequency adjustment
           # as the resource utilization will affect the frequency, we will adjust freqeuncy here using a simple step-wise function
-          if DSP / config['BOARD']['DSP_THRES'] > 0.6 or BRAM18K / config['BOARD']['BRAM18K_THRES'] > 0.5:
+          if DSP / config['BOARD']['DSP'] > 0.6 or BRAM18K / config['BOARD']['BRAM18K'] > 0.5:
             params['FRE'] = 180
           else:
             params['FRE'] = 250
 
+#          if (IN_NUM_T == 32) and (IN_W_T == 2) and (SIMD_LANE == 2):
+#            if (SA_ROWS == 1) and (SA_COLS == 1) and ((SA_SIMD_LANE == 2) or (SA_SIMD_LANE == 1)):
+#              print(params)
+
           # latency estimation
           latency, params = model_latency_est(params, model_config, layer_configs)
+
+#          if (IN_NUM_T == 32) and (IN_W_T == 2) and (SIMD_LANE == 2):
+#            print(latency, SA_ROWS, SA_COLS, SA_SIMD_LANE)
+#            if (SA_ROWS == 1) and (SA_COLS == 1) and ((SA_SIMD_LANE == 2) or (SA_SIMD_LANE == 1)):
+#              print(params)
 
           cur_fps = 250 * 1e6 * (1 / latency)
           opt_fps = 250 * 1e6 * (1 / opt_latency)
 
+#          print(cur_fps)
           if cur_fps - opt_fps >= 0.5:
-            print("updated FPS (%.2f -> %.2f)" % (opt_fps, cur_fps))
+#            print("updated FPS (%.2f -> %.2f)" % (opt_fps, cur_fps))
+#            if IN_NUM_T == 32 and IN_H_T == 2 and SIMD_LANE == 2:
+#                print(params)
             opt_latency = latency
             opt_DSP = DSP
             opt_BRAM18K = BRAM18K
@@ -881,10 +894,10 @@ def param_sweep(params_list, config, model_config, layer_configs):
             opt_params['SA_ROWS'] = params['SA_ROWS']
             opt_params['SA_COLS'] = params['SA_COLS']
             opt_params['SA_SIMD_LANE'] = params['SA_SIMD_LANE']
-            opt_params['LAYER_IN_NUM_T_LIST'] = params['LAYER_IN_NUM_T_LIST']
-            opt_params['LAYER_OUT_NUM_T_LIST'] = params['LAYER_OUT_NUM_T_LIST']
-            opt_params['LAYER_IN_H_T_LIST'] = params['LAYER_IN_H_T_LIST']
-            opt_params['LAYER_IN_W_T_LIST'] = params['LAYER_IN_W_T_LIST']
+            opt_params['LAYER_IN_NUM_T_LIST'] = list(params['LAYER_IN_NUM_T_LIST'])
+            opt_params['LAYER_OUT_NUM_T_LIST'] = list(params['LAYER_OUT_NUM_T_LIST'])
+            opt_params['LAYER_IN_H_T_LIST'] = list(params['LAYER_IN_H_T_LIST'])
+            opt_params['LAYER_IN_W_T_LIST'] = list(params['LAYER_IN_W_T_LIST'])
             opt_params['FRE'] = params['FRE']
 
   res = {}
@@ -905,4 +918,3 @@ if __name__ == "__main__":
 
   args = parser.parse_args()
   run(args.model, args.model_config, args.input_config, args.board)
- 

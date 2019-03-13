@@ -748,10 +748,16 @@ def run(f_model, f_model_config, f_input_config, f_board):
   opt_DSP = np.inf
   opt_BRAM18K = np.inf
   opt_params = {}
+  debug_cnt = 0
   for IN_H_T in list(filter(lambda x : network_in_h % x == 0 and x % 2 == 0, range(1, int(network_in_h / 8) + 1))): # upper_bound
     for IN_W_T in list(filter(lambda x : network_in_w % x == 0 and x % 2 == 0, range(1, int(network_in_w / 8) + 1))): # upper_bound
       for IN_NUM_T in list(filter(lambda x : network_channel_max % x == 0 and x % 16 == 0, range(1, 128 + 1))): # upper_bound
         for SIMD_LANE in list(filter(lambda x : IN_NUM_T % x == 0 and x % 2 == 0, range(1, min(IN_NUM_T, 8) + 1))):
+          debug_cnt += 1
+#          print(debug_cnt)
+#          print(IN_NUM_T, IN_W_T, SIMD_LANE)
+#          if (IN_NUM_T == 32) and (IN_W_T == 2) and (SIMD_LANE == 2):
+#            print(params)
           for SA_ROWS in list(filter(lambda x : IN_NUM_T % x == 0, range(1, IN_NUM_T + 1))):
             for SA_COLS in list(filter(lambda x : IN_W_T % x == 0, range(1, IN_W_T + 1))):
               for SA_SIMD_LANE in list(filter(lambda x : SIMD_LANE % x == 0, range(1, SIMD_LANE + 1))):
@@ -775,19 +781,31 @@ def run(f_model, f_model_config, f_input_config, f_board):
 
                 # frequency adjustment
                 # as the resource utilization will affect the frequency, we will adjust freqeuncy here using a simple step-wise function
-                if DSP / config['BOARD']['DSP_THRES'] > 0.6 or BRAM18K / config['BOARD']['BRAM18K_THRES'] > 0.5:
+                if DSP / config['BOARD']['DSP'] > 0.6 or BRAM18K / config['BOARD']['BRAM18K'] > 0.5:
                   params['FRE'] = 180
                 else:
                   params['FRE'] = 250
 
+#                if (IN_NUM_T == 32) and (IN_W_T == 2) and (SIMD_LANE == 2):
+#                  if (SA_ROWS == 1) and (SA_COLS == 1) and ((SA_SIMD_LANE == 2) or (SA_SIMD_LANE == 1)):
+#                    print(params)
+
                 # latency estimation
                 latency, params = model_latency_est(params, model_config, layer_configs)
+
+#                if (IN_NUM_T == 32) and (IN_W_T == 2) and (SIMD_LANE == 2):
+#                  print(latency, SA_ROWS, SA_COLS, SA_SIMD_LANE)
+#                  if (SA_ROWS == 1) and (SA_COLS == 1) and ((SA_SIMD_LANE == 2) or (SA_SIMD_LANE == 1)):
+#                    print(params)
 
                 cur_fps = 250 * 1e6 * (1 / latency)
                 opt_fps = 250 * 1e6 * (1 / opt_latency)
 
+#                print(cur_fps)
                 if cur_fps - opt_fps >= 0.5:
                   print("updated FPS (%.2f -> %.2f)" % (opt_fps, cur_fps))
+#                  if IN_NUM_T == 32 and IN_H_T == 2 and SIMD_LANE == 2:
+#                      print(params)
                   opt_latency = latency
                   opt_DSP = DSP
                   opt_BRAM18K = BRAM18K
@@ -801,10 +819,10 @@ def run(f_model, f_model_config, f_input_config, f_board):
                   opt_params['SA_ROWS'] = params['SA_ROWS']
                   opt_params['SA_COLS'] = params['SA_COLS']
                   opt_params['SA_SIMD_LANE'] = params['SA_SIMD_LANE']
-                  opt_params['LAYER_IN_NUM_T_LIST'] = params['LAYER_IN_NUM_T_LIST']
-                  opt_params['LAYER_OUT_NUM_T_LIST'] = params['LAYER_OUT_NUM_T_LIST']
-                  opt_params['LAYER_IN_H_T_LIST'] = params['LAYER_IN_H_T_LIST']
-                  opt_params['LAYER_IN_W_T_LIST'] = params['LAYER_IN_W_T_LIST']
+                  opt_params['LAYER_IN_NUM_T_LIST'] = list(params['LAYER_IN_NUM_T_LIST'])
+                  opt_params['LAYER_OUT_NUM_T_LIST'] = list(params['LAYER_OUT_NUM_T_LIST'])
+                  opt_params['LAYER_IN_H_T_LIST'] = list(params['LAYER_IN_H_T_LIST'])
+                  opt_params['LAYER_IN_W_T_LIST'] = list(params['LAYER_IN_W_T_LIST'])
                   opt_params['FRE'] = params['FRE']
 
   # print out results
