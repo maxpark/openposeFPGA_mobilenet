@@ -10,7 +10,7 @@ The openpose algorithm contains two parts, the neural network and the graph proc
 
 In this repo, we build an HLS-based FPGA accelerator for the OpenPose application. The target of this project is to achieve real-time processing with high energy efficiency. The code in this repository has been tested with Xilinx SDx 2018.3 on Xilinx VCU1525 platform.
 
-The implemented accelerator achieves 14.0 FPS for 384x384 input. 
+The implemented accelerator achieves 18.0 FPS for 384x384 input. 
 
 The structure of this repo is as follows:
 ```
