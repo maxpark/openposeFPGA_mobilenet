@@ -18,7 +18,7 @@ def effective_dram_est(port_width, burst_len, fre):
   return eff_bw, eff_port_width
 
 def cin_load_est(in_num_t, in_h_t, in_w_t, fh, fw, lane, dw, port_width, fre):
-  burst_len = in_w_t * in_num_t / (port_width / dw)
+  burst_len = (in_w_t + fw - 1) * in_num_t / (port_width / dw)
   eff_bw, eff_port_width = effective_dram_est(port_width, burst_len, fre)
   load_phase_latency = in_num_t * (fh - 1 + in_h_t) * (fw - 1 + in_w_t) / (eff_port_width / dw)
   write_phase_latency = in_num_t * (fh - 1 + in_h_t) * (fw - 1 + in_w_t) / lane
@@ -56,14 +56,15 @@ def inter_load_est(in_num_t, in_h_t, in_w_t, fh, fw, lane):
 def depth_conv_est(in_num_t, in_h_t, in_w_t, fh, fw, lane):
   return in_num_t * (fh - 1 + in_h_t) * (fw - 1 + in_w_t) / lane
 
-def point_conv_est(in_num, in_num_t, out_num_t, out_h_t, out_w_t, fh, fw, lane, sa_rows, sa_cols, sa_lane):
-  cin_load = in_num_t * (fh - 1 + out_h_t) * (fw - 1 + out_w_t) / lane
-  weight_load = in_num_t * out_num_t * fh * fw / lane
+def point_conv_est(in_num, in_num_t, out_num_t, out_h_t, out_w_t, fh1, fw1, fh2, fw2, lane, sa_rows, sa_cols, sa_lane):
+  cin_load = in_num_t * (fh1 - 1 + out_h_t) * (fw1 - 1 + out_w_t) / lane
+  weight_load = in_num_t * out_num_t * fh2 * fw2 / lane
   load_phase_latency = max(cin_load, weight_load)
-  compute_phase_latency = in_num_t * out_num_t * out_h_t * out_w_t * fh * fw / sa_rows / sa_cols / sa_lane
+  compute_phase_latency = in_num_t * out_num_t * out_h_t * out_w_t * fh2 * fw2 / sa_rows / sa_cols / sa_lane
+  compute_drain_latency = out_num_t * out_w_t / sa_cols * out_h_t / np.ceil(in_num / in_num_t)
   cout_write = out_num_t * out_h_t * out_w_t / np.ceil(in_num / in_num_t) / lane
   write_phase_latency = cout_write
-  return max(load_phase_latency, compute_phase_latency, write_phase_latency)
+  return max(load_phase_latency, compute_phase_latency, compute_drain_latency, write_phase_latency)
 
 def relu_est(in_num, in_num_t, out_num_t, out_h_t, out_w_t, lane):
   return out_num_t * out_h_t * out_w_t / lane / np.ceil(in_num / in_num_t)
@@ -117,7 +118,7 @@ def layer_latency_est(params):
   else:
     depth_conv_latency = 0
   if point_conv_en == 1:
-    point_conv_latency = point_conv_est(in_num, in_num_t, out_num_t, out_h_t, out_w_t, filter_s2, filter_s2, lane, sa_rows, sa_cols, sa_lane)
+    point_conv_latency = point_conv_est(in_num, in_num_t, out_num_t, out_h_t, out_w_t, filter_s1, filter_s1, filter_s2, filter_s2, lane, sa_rows, sa_cols, sa_lane)
   else:
     point_conv_latency = 0
   relu_latency = relu_est(in_num, in_num_t, out_num_t, out_h_t, out_w_t, lane)
@@ -133,8 +134,11 @@ def layer_latency_est(params):
   total_iter = np.ceil(in_num / in_num_t) * np.ceil(out_num / out_num_t) * np.ceil(in_h / in_h_t) * np.ceil(in_w / in_w_t)
 #  print(in_num, out_num, in_h, in_w, in_num_t, out_num_t, in_h_t, in_w_t)
 #  print("stage latency, total iter: ", stage_latency, total_iter)
-  dep_latency = max(cin_load_latency, weight_load_latency) + max(depth_conv_latency, point_conv_latency, relu_latency) + cout_write_latency
-  total_latency = max(stage_latency * total_iter, dep_latency)
+  extra_latency = max(cin_load_latency, weight_load_latency) + cout_write_latency # the data drain latency is omitted
+  total_latency = extra_latency + stage_latency * total_iter
+
+#  dep_latency = max(cin_load_latency, weight_load_latency) + max(depth_conv_latency, point_conv_latency, relu_latency, pool_latency) + cout_write_latency
+#  total_latency = max(stage_latency * total_iter, dep_latency)
 
   return total_latency
 
