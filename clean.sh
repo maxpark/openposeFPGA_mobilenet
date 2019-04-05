@@ -11,6 +11,7 @@ rm -rf ./HLS_project/HLS_kernel/output
 rm ./HLS_project/2D*
 rm ./HLS_project/common*
 rm ./HLS_project/params.h
+rm -rf ./HLS_project/pose_prj
 
 # SDx_project
 rm ./SDx_project/src/hw_kernel.cpp
