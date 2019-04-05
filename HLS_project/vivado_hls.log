@@ -1,0 +1,100 @@
+
+****** Vivado(TM) HLS - High-Level Synthesis from C, C++ and SystemC v2018.3 (64-bit)
+  **** SW Build 2405991 on Thu Dec  6 23:36:41 MST 2018
+  **** IP Build 2404404 on Fri Dec  7 01:43:56 MST 2018
+    ** Copyright 1986-2018 Xilinx, Inc. All Rights Reserved.
+
+source /opt/tools/xilinx/Vivado/2018.3/scripts/vivado_hls/hls.tcl -notrace
+INFO: [HLS 200-10] Running '/opt/tools/xilinx/Vivado/2018.3/bin/unwrapped/lnx64.o/vivado_hls'
+INFO: [HLS 200-10] For user 'jaywang' on host 'localhost' (Linux_x86_64 version 4.4.0-140-generic) on Fri Apr 05 11:16:07 PDT 2019
+INFO: [HLS 200-10] On os "CentOS Linux release 7.5.1804 (Core) "
+INFO: [HLS 200-10] In directory '/curr/jaywang/research/ndn/github/openposeFPGA_mobilenet/HLS_project'
+WARNING: [HLS 200-40] Environment variable 'C_INCLUDE_PATH' is set to /opt/novell/mono/include.
+INFO: [HLS 200-10] Opening project '/curr/jaywang/research/ndn/github/openposeFPGA_mobilenet/HLS_project/pose_prj'.
+INFO: [HLS 200-10] Adding design file 'pose.h' to the project
+INFO: [HLS 200-10] Adding design file 'kernel.cpp' to the project
+INFO: [HLS 200-10] Adding design file 'cnn_sw.cpp' to the project
+INFO: [HLS 200-10] Adding design file 'common_header_U1.h' to the project
+INFO: [HLS 200-10] Adding design file '2DDataFeed_U1.cpp' to the project
+INFO: [HLS 200-10] Adding design file '2DDataCollect_U1.cpp' to the project
+INFO: [HLS 200-10] Adding design file '2DDataFeedCollect_U1.cpp' to the project
+INFO: [HLS 200-10] Adding design file '2DPE_U1.cpp' to the project
+INFO: [HLS 200-10] Adding test bench file 'tb_pose.cpp' to the project
+INFO: [HLS 200-10] Opening solution '/curr/jaywang/research/ndn/github/openposeFPGA_mobilenet/HLS_project/pose_prj/solution1'.
+INFO: [SYN 201-201] Setting up clock 'default' with a period of 3ns.
+INFO: [HLS 200-10] Setting target device to 'xc7vx690tffg1761-2'
+INFO: [SIM 211-2] *************** CSIM start ***************
+INFO: [SIM 211-4] CSIM will launch GCC as the compiler.
+   Compiling ../../../../tb_pose.cpp in debug mode
+   Compiling ../../../../2DPE_U1.cpp in debug mode
+   Compiling ../../../../2DDataFeedCollect_U1.cpp in debug mode
+   Compiling ../../../../2DDataCollect_U1.cpp in debug mode
+   Compiling ../../../../2DDataFeed_U1.cpp in debug mode
+   Compiling ../../../../cnn_sw.cpp in debug mode
+   Compiling ../../../../kernel.cpp in debug mode
+   Generating csim.exe
+Your working PATH is: /curr/jaywang/research/ndn/github/openposeFPGA_mobilenet
+cin_size: 17311200
+bias_size: 7568
+weight_size: 2102544
+Loading instructions...
+Preparing data...
+Loading input...
+Loading weight...
+Loading bias...
+Loading output...
+HW acceleration...
+0 1
+1 1
+2 1
+3 1
+4 1
+5 1
+6 1
+7 1
+8 1
+9 1
+10 1
+11 1
+12 1
+13 1
+14 1
+15 2
+17 2
+19 2
+21 2
+23 1
+24 1
+25 2
+27 2
+29 2
+31 2
+33 1
+34 1
+35 2
+37 2
+39 2
+41 2
+43 1
+44 1
+45 2
+47 2
+49 2
+51 2
+53 1
+54 1
+55 2
+57 2
+59 2
+61 2
+63 1
+64 1
+65 2
+67 2
+69 2
+71 2
+Results comparison...
+Success!
+INFO: [SIM 211-1] CSim done with 0 errors.
+INFO: [SIM 211-3] *************** CSIM finish ***************
+INFO: [Common 17-206] Exiting vivado_hls at Fri Apr  5 13:05:29 2019...

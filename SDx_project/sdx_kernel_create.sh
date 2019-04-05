@@ -1,5 +1,7 @@
 #!/bin/bash
 
+rm ./src/hw_kernel*
+
 # merge HLS kernel files into one SDx kernel file
 cat ../HLS_project/common_header_U1.h >> ./src/hw_kernel0.cpp
 cat ../HLS_project/2DDataFeedCollect_U1.cpp >> ./src/hw_kernel0.cpp
@@ -13,3 +15,6 @@ python hw_kernel_modify.py -i src/hw_kernel0.cpp -o src/hw_kernel.cpp
 
 # copy params.h to SDx project
 cp ../HLS_project/params.h ./src/
+
+# copy pose.h to SDx project
+cp ../HLS_project/pose.h ./src

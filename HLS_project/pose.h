@@ -33,6 +33,9 @@ using namespace hls;
 #define INTER_WRITE_LANE (SIMD_LANE)
 //#define DATA_WRITE_LANE 8
 
+#define STENCIL_SPLIT_FACTOR 2
+#define STENCIL_PACK_FACTOR (DEPTH_CONV_LANE / STENCIL_SPLIT_FACTOR)
+
 #define CONFIG_PARAMS  31
 #define INST_PER_LAYER 5
 
@@ -82,6 +85,7 @@ typedef ap_uint<DATA_W0 * INTER_WRITE_LANE> InterWriteData0Type;
 typedef ap_uint<DATA_W0 * INTER_WRITE_LANE> InterWriteData1Type;
 // typedef ap_uint<CIN_DATA_W*DATA_WRITE_LANE> UpsampleData0Type;
 
+extern "C" {
 void top_kernel(
   bus_t0 *global_cin,
   bus_t0 *global_cout,
@@ -89,6 +93,7 @@ void top_kernel(
   bus_t2 *global_bias,
   bus_t3 *layer_config
 );
+}
 
 void openpose_preprocess(
   data_t0* cin_hw,
@@ -141,20 +146,72 @@ inline To Reinterpret(const From& val){
 }
 
 template <class T_data_t0, class T_data_t1, int T_IN_NUM_T, int T_IN_H_T, int T_IN_W_T, int T_UNROLL, int T_WS, int T_DATA_WIDTH0, int T_DATA_WIDTH1>
-void stencil_w3(
-  hls::stream<ap_uint<T_DATA_WIDTH0 * T_UNROLL> > &fifo_in,
-  T_data_t1                                       weights[T_IN_NUM_T / T_UNROLL][T_UNROLL][K_T][K_T],  
-  hls::stream<ap_uint<T_DATA_WIDTH0 * T_UNROLL> > &fifo_out,
-  uint                                            stride,
-  uint                                            layer_in_num_t,
-  uint                                            layer_in_h_t
+void stencil_w3_distributor(
+  hls::stream<ap_uint<T_DATA_WIDTH0 * T_UNROLL> >             &fifo_in,
+  hls::stream<ap_uint<T_DATA_WIDTH0 * STENCIL_PACK_FACTOR> >  fifo_inter[STENCIL_SPLIT_FACTOR],
+  uint                                                        stride,
+  uint                                                        layer_in_num_t,
+  uint                                                        layer_in_h_t,
+  uint                                                        oo_bound,
+  uint                                                        iter_bound,
+  uint                                                        bound
 ){
-#pragma HLS INLINE off
-  T_data_t0 line_buf1[T_UNROLL][T_IN_W_T];
-  T_data_t0 line_buf2[T_UNROLL][T_IN_W_T];
-  T_data_t0 line_buf3[T_UNROLL][T_WS];
+  int oo = 0;
+  int iter = 0;
+//  int oo_bound = layer_in_num_t / T_UNROLL;
+//  int iter_bound = layer_in_h_t * T_IN_W_T + (T_WS - 1) * T_IN_W_T + T_WS - 1;
+//  int bound = oo_bound * iter_bound;
+
+  ap_uint<T_DATA_WIDTH0 * STENCIL_PACK_FACTOR> sel_tmp[STENCIL_SPLIT_FACTOR];
+#pragma HLS ARRAY_PARTITION variable=sel_tmp complete
+
+  for (int total_iter = 0; total_iter < bound; total_iter++){
+#pragma HLS PIPELINE II=1    
+    ap_uint<T_DATA_WIDTH0 * T_UNROLL> wide_data_in;
+    if (iter < layer_in_h_t * T_IN_W_T){
+      wide_data_in = fifo_in.read();
+    }
+
+    for (int dup = 0; dup < STENCIL_SPLIT_FACTOR; dup++){
+#pragma HLS UNROLL
+      sel_tmp[dup] = wide_data_in(T_DATA_WIDTH0 * STENCIL_PACK_FACTOR - 1, 0);
+      wide_data_in = wide_data_in >> T_DATA_WIDTH0 * STENCIL_PACK_FACTOR;
+    }
+  
+    for (int dup = 0; dup < STENCIL_SPLIT_FACTOR; dup++){
+      if (iter < layer_in_h_t * T_IN_W_T){
+        fifo_inter[dup].write(sel_tmp[dup]);
+      }
+    }
+
+    iter++;
+    if (iter == iter_bound){
+      iter = 0;
+      oo++;
+      if (oo == oo_bound){
+        oo = 0;
+      }
+    }
+  }
+}
+
+template <class T_data_t0, class T_data_t1, int T_IN_NUM_T, int T_IN_H_T, int T_IN_W_T, int T_UNROLL, int T_WS, int T_DATA_WIDTH0, int T_DATA_WIDTH1>
+void stencil_w3_compute(
+  hls::stream<ap_uint<T_DATA_WIDTH0 * STENCIL_PACK_FACTOR> >  &fifo_inter_in,
+  hls::stream<ap_uint<T_DATA_WIDTH0 * STENCIL_PACK_FACTOR> >  &fifo_inter_out,
+  T_data_t1                                                   weights[T_IN_NUM_T / T_UNROLL][STENCIL_PACK_FACTOR][K_T][K_T],  
+  uint                                                        stride,
+  uint                                                        layer_in_num_t,
+  uint                                                        layer_in_h_t,
+  uint                                                        oo_bound,
+  uint                                                        iter_bound,
+  uint                                                        bound
+){
+  T_data_t0 line_buf1[STENCIL_PACK_FACTOR][T_IN_W_T];
+  T_data_t0 line_buf2[STENCIL_PACK_FACTOR][T_IN_W_T];
+  T_data_t0 line_buf3[STENCIL_PACK_FACTOR][T_WS];
 #pragma HLS ARRAY_PARTITION variable=line_buf1 dim=1 complete
-#pragma HLS ARRAY_PARTITIOn variable=line_buf1 dim=2 complete
+#pragma HLS ARRAY_PARTITION variable=line_buf1 dim=2 complete
 #pragma HLS ARRAY_PARTITION variable=line_buf2 dim=1 complete
 #pragma HLS ARRAY_PARTITION variable=line_buf2 dim=2 complete
 #pragma HLS ARRAY_PARTITION variable=line_buf3 dim=1 complete
@@ -167,16 +224,21 @@ void stencil_w3(
   uint trans_cnt = 0;
   uint inner_trans_cnt = 0;
 
-  ap_uint<T_DATA_WIDTH0> utmp[T_UNROLL];
-#pragma HLS ARRAY_PARTITION variable=utmp complete
-  T_data_t0 sums[T_UNROLL];
-#pragma HLS ARRAY_PARTITION variable=sums complete
+  ap_uint<T_DATA_WIDTH0> utmp[STENCIL_PACK_FACTOR];
+#pragma HLS ARRAY_PARTITION variable=utmp complete  
+  T_data_t0 sums[STENCIL_PACK_FACTOR];
+#pragma HLS ARRAY_PARTITION variable=sums complete  
+  ap_uint<T_DATA_WIDTH0> sums_utmp[STENCIL_PACK_FACTOR];
+#pragma HLS ARRAY_PARTITION variable=sums_utmp complete  
 
   int oo = 0;
   int iter = 0;
-  int oo_bound = layer_in_num_t / T_UNROLL;
-  int iter_bound = layer_in_h_t * T_IN_W_T + (T_WS - 1) * T_IN_W_T + T_WS - 1;
-  int bound = oo_bound * iter_bound;
+//  int oo_bound = layer_in_num_t / T_UNROLL;
+//  int iter_bound = layer_in_h_t * T_IN_W_T + (T_WS - 1) * T_IN_W_T + T_WS - 1;
+//  int bound = oo_bound * iter_bound;
+
+  ap_uint<T_DATA_WIDTH0> sel_tmp[STENCIL_PACK_FACTOR];
+#pragma HLS ARRAY_PARTITION variable=sel_tmp complete  
 
   for (int total_iter = 0; total_iter < bound; total_iter++){
 #pragma HLS PIPELINE II=1    
@@ -185,12 +247,17 @@ void stencil_w3(
       inner_trans_cnt = 0;
     }
 
-    ap_uint<T_DATA_WIDTH0 * T_UNROLL> wide_data_in;
     if (iter < layer_in_h_t * T_IN_W_T){
-      wide_data_in = fifo_in.read();
+      ap_uint<T_DATA_WIDTH0 * STENCIL_PACK_FACTOR> wide_data_in;
+      wide_data_in = fifo_inter_in.read();
+      for (int dup = 0; dup < STENCIL_PACK_FACTOR; dup++){
+#pragma HLS UNROLL
+        sel_tmp[dup] = wide_data_in(T_DATA_WIDTH0 - 1, 0);
+        wide_data_in = wide_data_in >> T_DATA_WIDTH0;
+      }
     }
 
-    for (int dup = 0; dup < T_UNROLL; dup++){
+    for (int dup = 0; dup < STENCIL_PACK_FACTOR; dup++){
       T_data_t0 tmp1 = line_buf1[dup][T_IN_W_T - 1];
       T_data_t0 tmp2 = line_buf2[dup][T_IN_W_T - 1];
       for (int i = T_IN_W_T - 1; i >= 1; i--){
@@ -202,119 +269,11 @@ void stencil_w3(
 #pragma HLS UNROLL
         line_buf3[dup][i] = line_buf3[dup][i - 1];
       }
-      
-      if (iter < layer_in_h_t * T_IN_W_T){        
-        ap_uint<T_DATA_WIDTH0> sel_tmp;
-#if DEPTH_CONV_LANE == 16
-        switch(dup){
-          case 0:
-            sel_tmp = wide_data_in(T_DATA_WIDTH0 * 1 - 1, T_DATA_WIDTH0 * 0);
-            break;
-          case 1:
-            sel_tmp = wide_data_in(T_DATA_WIDTH0 * 2 - 1, T_DATA_WIDTH0 * 1);
-            break;
-          case 2:
-            sel_tmp = wide_data_in(T_DATA_WIDTH0 * 3 - 1, T_DATA_WIDTH0 * 2);
-            break;
-          case 3:
-            sel_tmp = wide_data_in(T_DATA_WIDTH0 * 4 - 1, T_DATA_WIDTH0 * 3);
-            break;
-          case 4:
-            sel_tmp = wide_data_in(T_DATA_WIDTH0 * 5 - 1, T_DATA_WIDTH0 * 4);
-            break;
-          case 5:
-            sel_tmp = wide_data_in(T_DATA_WIDTH0 * 6 - 1, T_DATA_WIDTH0 * 5);
-            break;
-          case 6:
-            sel_tmp = wide_data_in(T_DATA_WIDTH0 * 7 - 1, T_DATA_WIDTH0 * 6);
-            break;
-          case 7:
-            sel_tmp = wide_data_in(T_DATA_WIDTH0 * 8 - 1, T_DATA_WIDTH0 * 7);
-            break;
-          case 8:
-            sel_tmp = wide_data_in(T_DATA_WIDTH0 * 9 - 1, T_DATA_WIDTH0 * 8);
-            break;
-          case 9:
-            sel_tmp = wide_data_in(T_DATA_WIDTH0 * 10 - 1, T_DATA_WIDTH0 * 9);
-            break;
-          case 10:
-            sel_tmp = wide_data_in(T_DATA_WIDTH0 * 11 - 1, T_DATA_WIDTH0 * 10);
-            break;
-          case 11:
-            sel_tmp = wide_data_in(T_DATA_WIDTH0 * 12 - 1, T_DATA_WIDTH0 * 11);
-            break;
-          case 12:
-            sel_tmp = wide_data_in(T_DATA_WIDTH0 * 13 - 1, T_DATA_WIDTH0 * 12);
-            break;
-          case 13:
-            sel_tmp = wide_data_in(T_DATA_WIDTH0 * 14 - 1, T_DATA_WIDTH0 * 13);
-            break;
-          case 14:
-            sel_tmp = wide_data_in(T_DATA_WIDTH0 * 15 - 1, T_DATA_WIDTH0 * 14);
-            break;
-          case 15:
-            sel_tmp = wide_data_in(T_DATA_WIDTH0 * 16 - 1, T_DATA_WIDTH0 * 15);
-            break;
-        }
-#elif DEPTH_CONV_LANE == 8
-        switch(dup){
-          case 0:
-            sel_tmp = wide_data_in(T_DATA_WIDTH0 * 1 - 1, T_DATA_WIDTH0 * 0);
-            break;
-          case 1:
-            sel_tmp = wide_data_in(T_DATA_WIDTH0 * 2 - 1, T_DATA_WIDTH0 * 1);
-            break;
-          case 2:
-            sel_tmp = wide_data_in(T_DATA_WIDTH0 * 3 - 1, T_DATA_WIDTH0 * 2);
-            break;
-          case 3:
-            sel_tmp = wide_data_in(T_DATA_WIDTH0 * 4 - 1, T_DATA_WIDTH0 * 3);
-            break;
-          case 4:
-            sel_tmp = wide_data_in(T_DATA_WIDTH0 * 5 - 1, T_DATA_WIDTH0 * 4);
-            break;
-          case 5:
-            sel_tmp = wide_data_in(T_DATA_WIDTH0 * 6 - 1, T_DATA_WIDTH0 * 5);
-            break;
-          case 6:
-            sel_tmp = wide_data_in(T_DATA_WIDTH0 * 7 - 1, T_DATA_WIDTH0 * 6);
-            break;
-          case 7:
-            sel_tmp = wide_data_in(T_DATA_WIDTH0 * 8 - 1, T_DATA_WIDTH0 * 7);
-            break;
-        }
-#elif DEPTH_CONV_LANE == 4
-        switch(dup){
-          case 0:
-            sel_tmp = wide_data_in(T_DATA_WIDTH0 * 1 - 1, T_DATA_WIDTH0 * 0);
-            break;
-          case 1:
-            sel_tmp = wide_data_in(T_DATA_WIDTH0 * 2 - 1, T_DATA_WIDTH0 * 1);
-            break;
-          case 2:
-            sel_tmp = wide_data_in(T_DATA_WIDTH0 * 3 - 1, T_DATA_WIDTH0 * 2);
-            break;
-          case 3:
-            sel_tmp = wide_data_in(T_DATA_WIDTH0 * 4 - 1, T_DATA_WIDTH0 * 3);
-            break;
-        }
-#elif DEPTH_CONV_LANE == 2
-        switch(dup){
-          case 0:
-            sel_tmp = wide_data_in(T_DATA_WIDTH0 * 1 - 1, T_DATA_WIDTH0 * 0);
-            break;
-          case 1:
-            sel_tmp = wide_data_in(T_DATA_WIDTH0 * 2 - 1, T_DATA_WIDTH0 * 1);
-            break;
-        }
-#elif DEPTH_CONV_LANE == 1
-        switch(dup){
-          case 0:
-            sel_tmp = wide_data_in(T_DATA_WIDTH0 * 1 - 1, T_DATA_WIDTH0 * 0);
-            break;
-        }
-#endif        
-        line_buf1[dup][0] = Reinterpret<T_data_t0>(sel_tmp);
+    
+      if (iter < layer_in_h_t * T_IN_W_T){
+        ap_uint<T_DATA_WIDTH0> sel_tmp_dup = sel_tmp[dup];
+//        sel_tmp = fifo_inter_in.read();        
+        line_buf1[dup][0] = Reinterpret<T_data_t0>(sel_tmp_dup);
       } else {      
         line_buf1[dup][0] = 0.0;
       }
@@ -331,7 +290,7 @@ void stencil_w3(
       T_data_t0 prod_2_0 = line_buf1[dup][T_WS - 1] * weights[oo][dup][2][0];
       T_data_t0 prod_2_1 = line_buf1[dup][T_WS - 2] * weights[oo][dup][2][1];
       T_data_t0 prod_2_2 = line_buf1[dup][T_WS - 3] * weights[oo][dup][2][2];
-    
+      
       // adds
       T_data_t0 sum_0_0 = prod_0_0 + prod_0_1;
       T_data_t0 sum_0_1 = prod_0_2 + prod_1_0;
@@ -341,9 +300,74 @@ void stencil_w3(
       T_data_t0 sum_1_1 = sum_0_2 + sum_0_3;
       T_data_t0 sum_2_0 = sum_1_0 + sum_1_1;
       T_data_t0 sum_3_0 = sum_2_0 + prod_2_2;
-
-      sums[dup]  = sum_3_0;
+  
+      sums[dup] = sum_3_0;
+      sums_utmp[dup] = Reinterpret<ap_uint<T_DATA_WIDTH0> >(sum_3_0);
     }
+
+    ap_uint<T_DATA_WIDTH0 * STENCIL_PACK_FACTOR> wide_data_out = (
+#if STENCIL_PACK_FACTOR == 4
+      sums_utmp[3], sums_utmp[2], sums_utmp[1], sums_utmp[0]
+#endif        
+    );
+
+    fifo_inter_out.write(wide_data_out);
+
+    iter++;
+    if (iter == iter_bound){
+      iter = 0;
+      oo++;
+      if (oo == oo_bound){
+        oo = 0;
+      }
+    }
+  }
+}
+
+template <class T_data_t0, class T_data_t1, int T_IN_NUM_T, int T_IN_H_T, int T_IN_W_T, int T_UNROLL, int T_WS, int T_DATA_WIDTH0, int T_DATA_WIDTH1>
+void stencil_w3_merger(
+  hls::stream<ap_uint<T_DATA_WIDTH0 * STENCIL_PACK_FACTOR> >  fifo_inter[STENCIL_SPLIT_FACTOR],
+  hls::stream<ap_uint<T_DATA_WIDTH0 * T_UNROLL> >             &fifo_out,
+  uint                                                        stride,
+  uint                                                        layer_in_num_t,
+  uint                                                        layer_in_h_t,
+  uint                                                        oo_bound,
+  uint                                                        iter_bound,
+  uint                                                        bound
+){
+  bool col_skip = 0;
+  bool row_skip = 0;
+  bool col_strip_skip = 0;
+  bool row_strip_skip = 0;
+  uint trans_cnt = 0;
+  uint inner_trans_cnt = 0;
+
+  ap_uint<T_DATA_WIDTH0> utmp[T_UNROLL];
+#pragma HLS ARRAY_PARTITION variable=utmp complete
+
+  int oo = 0;
+  int iter = 0;
+//  int oo_bound = layer_in_num_t / T_UNROLL;
+//  int iter_bound = layer_in_h_t * T_IN_W_T + (T_WS - 1) * T_IN_W_T + T_WS - 1;
+//  int bound = oo_bound * iter_bound;
+
+  for (int total_iter = 0; total_iter < bound; total_iter++){
+#pragma HLS PIPELINE II=1    
+    if (iter == 0){
+      trans_cnt = 0;
+      inner_trans_cnt = 0;
+    }
+
+    for (int ii = 0; ii < STENCIL_SPLIT_FACTOR; ii++){
+#pragma HLS UNROLL          
+      ap_uint<T_DATA_WIDTH0 * STENCIL_PACK_FACTOR> utmp_tmp = fifo_inter[ii].read();
+      for (int jj = 0; jj < STENCIL_PACK_FACTOR; jj++){
+#pragma HLS UNROLL
+        utmp[ii * STENCIL_PACK_FACTOR + jj] = utmp_tmp(T_DATA_WIDTH0 - 1, 0);
+        utmp_tmp = utmp_tmp >> T_DATA_WIDTH0;
+      }
+//            utmp[ii] = utmp_tmp;
+    }          
 
     if (iter >= (T_WS - 1) * T_IN_W_T + T_WS - 1){      
       col_skip = (inner_trans_cnt % stride != stride - 1);
@@ -353,12 +377,7 @@ void stencil_w3(
       if (!col_strip_skip && !row_strip_skip){
         if (!col_skip && !row_skip){
 
-        for (int ii = 0; ii < T_UNROLL; ii++){
-          T_data_t0 sum_tmp = sums[ii];
-          ap_uint<T_DATA_WIDTH0> utmp_tmp = Reinterpret<ap_uint<T_DATA_WIDTH0> >(sum_tmp);
-          utmp[ii] = utmp_tmp;
-        }          
-        ap_uint<T_DATA_WIDTH0 * T_UNROLL> wide_data = (
+          ap_uint<T_DATA_WIDTH0 * T_UNROLL> wide_data = (
 #if DEPTH_CONV_LANE == 16
             utmp[15], utmp[14], utmp[13], utmp[12],
             utmp[11], utmp[10], utmp[9], utmp[8],
@@ -375,8 +394,295 @@ void stencil_w3(
             utmp[0]
 #endif
             );
-        fifo_out.write(wide_data); 
-      
+          fifo_out.write(wide_data);       
+        }
+        inner_trans_cnt++;
+      }
+      trans_cnt++;
+    }
+
+    iter++;
+    if (iter == iter_bound){
+      iter = 0;
+      oo++;
+      if (oo == oo_bound){
+        oo = 0;
+      }
+    }
+  }
+}
+
+template <class T_data_t0, class T_data_t1, int T_IN_NUM_T, int T_IN_H_T, int T_IN_W_T, int T_UNROLL, int T_WS, int T_DATA_WIDTH0, int T_DATA_WIDTH1>
+void stencil_w3(
+  hls::stream<ap_uint<T_DATA_WIDTH0 * T_UNROLL> > &fifo_in,
+//  T_data_t1                                       weights[T_IN_NUM_T / T_UNROLL][T_UNROLL][K_T][K_T],  
+#if STENCIL_SPLIT_FACTOR == 2
+  T_data_t1                                       weights0[T_IN_NUM_T / T_UNROLL][STENCIL_PACK_FACTOR][K_T][K_T],
+  T_data_t1                                       weights1[T_IN_NUM_T / T_UNROLL][STENCIL_PACK_FACTOR][K_T][K_T],
+#endif  
+  hls::stream<ap_uint<T_DATA_WIDTH0 * T_UNROLL> > &fifo_out,
+  uint                                            stride,
+  uint                                            layer_in_num_t,
+  uint                                            layer_in_h_t
+){  
+#pragma HLS INLINE off
+#pragma HLS DATAFLOW
+
+  hls::stream<ap_uint<T_DATA_WIDTH0 * STENCIL_PACK_FACTOR> > fifo_inter_in[STENCIL_SPLIT_FACTOR];
+  hls::stream<ap_uint<T_DATA_WIDTH0 * STENCIL_PACK_FACTOR> > fifo_inter_out[STENCIL_SPLIT_FACTOR];
+#pragma HLS STREAM variable=fifo_inter_in depth=2
+#pragma HLS STREAM variable=fifo_inter_out depth=2  
+
+  uint oo_bound = layer_in_num_t / T_UNROLL;
+  uint iter_bound = layer_in_h_t * T_IN_W_T + (T_WS - 1) * T_IN_W_T + T_WS - 1;
+  uint bound = oo_bound * iter_bound;
+
+//  printf("w3_distributor.\n");
+  stencil_w3_distributor<T_data_t0, T_data_t1, T_IN_NUM_T, T_IN_H_T, T_IN_W_T, T_UNROLL, T_WS, T_DATA_WIDTH0, T_DATA_WIDTH1>(
+      fifo_in, fifo_inter_in,
+      stride, layer_in_num_t, layer_in_h_t,
+      oo_bound, iter_bound, bound);
+
+//  compute_loop: for (int i = 0; i < T_UNROLL; i++){
+//#pragma HLS UNROLL
+//    stencil_w3_compute(fifo_inter_in[i], fifo_inter_out[i], weights, 
+//                       stride, layer_in_num_t, layer_in_h_t);
+//  }
+
+//  printf("w3_compute.\n");
+#if STENCIL_SPLIT_FACTOR == 2
+  stencil_w3_compute<T_data_t0, T_data_t1, T_IN_NUM_T, T_IN_H_T, T_IN_W_T, T_UNROLL, T_WS, T_DATA_WIDTH0, T_DATA_WIDTH1>(
+    fifo_inter_in[0], fifo_inter_out[0], weights0, stride, layer_in_num_t, layer_in_h_t, oo_bound, iter_bound, bound);
+  stencil_w3_compute<T_data_t0, T_data_t1, T_IN_NUM_T, T_IN_H_T, T_IN_W_T, T_UNROLL, T_WS, T_DATA_WIDTH0, T_DATA_WIDTH1>(
+    fifo_inter_in[1], fifo_inter_out[1], weights1, stride, layer_in_num_t, layer_in_h_t, oo_bound, iter_bound, bound);
+#endif      
+
+//  printf("w3_merger.\n");
+  stencil_w3_merger<T_data_t0, T_data_t1, T_IN_NUM_T, T_IN_H_T, T_IN_W_T, T_UNROLL, T_WS, T_DATA_WIDTH0, T_DATA_WIDTH1>(
+    fifo_inter_out,    
+    fifo_out,
+    stride, layer_in_num_t, layer_in_h_t,
+    oo_bound, iter_bound, bound);
+}
+
+template <class T_data_t0, class T_data_t1, int T_IN_NUM_T, int T_IN_H_T, int T_IN_W_T, int T_UNROLL, int T_WS, int T_DATA_WIDTH0, int T_DATA_WIDTH1>
+void stencil_w1_distributor(
+  hls::stream<ap_uint<T_DATA_WIDTH0 * T_UNROLL> >             &fifo_in,
+  hls::stream<ap_uint<T_DATA_WIDTH0 * STENCIL_PACK_FACTOR> >  fifo_inter[STENCIL_SPLIT_FACTOR],
+  uint                                                        stride,
+  uint                                                        layer_in_num_t,
+  uint                                                        layer_in_h_t,
+  uint                                                        oo_bound,
+  uint                                                        iter_bound,
+  uint                                                        bound
+){
+  int oo = 0;
+  int iter = 0;
+//  int oo_bound = layer_in_num_t / T_UNROLL;
+//  int iter_bound = layer_in_h_t * T_IN_W_T + (T_WS - 1) * T_IN_W_T + T_WS - 1;
+//  int bound = oo_bound * iter_bound;
+
+  ap_uint<T_DATA_WIDTH0 * STENCIL_PACK_FACTOR> sel_tmp[STENCIL_SPLIT_FACTOR];
+#pragma HLS ARRAY_PARTITION variable=sel_tmp complete
+
+  for (int total_iter = 0; total_iter < bound; total_iter++){
+#pragma HLS PIPELINE II=1    
+    ap_uint<T_DATA_WIDTH0 * T_UNROLL> wide_data_in;
+    if (iter < layer_in_h_t * T_IN_W_T){
+      wide_data_in = fifo_in.read();
+    }
+
+    for (int dup = 0; dup < STENCIL_SPLIT_FACTOR; dup++){
+#pragma HLS UNROLL
+      sel_tmp[dup] = wide_data_in(T_DATA_WIDTH0 * STENCIL_PACK_FACTOR - 1, 0);
+      wide_data_in = wide_data_in >> T_DATA_WIDTH0 * STENCIL_PACK_FACTOR;
+    }
+  
+    for (int dup = 0; dup < STENCIL_SPLIT_FACTOR; dup++){
+      if (iter < layer_in_h_t * T_IN_W_T){
+        fifo_inter[dup].write(sel_tmp[dup]);
+      }
+    }
+
+    iter++;
+    if (iter == iter_bound){
+      iter = 0;
+      oo++;
+      if (oo == oo_bound){
+        oo = 0;
+      }
+    }
+  }
+}
+
+template <class T_data_t0, class T_data_t1, int T_IN_NUM_T, int T_IN_H_T, int T_IN_W_T, int T_UNROLL, int T_WS, int T_DATA_WIDTH0, int T_DATA_WIDTH1>
+void stencil_w1_compute(
+  hls::stream<ap_uint<T_DATA_WIDTH0 * STENCIL_PACK_FACTOR> >  &fifo_inter_in,
+  hls::stream<ap_uint<T_DATA_WIDTH0 * STENCIL_PACK_FACTOR> >  &fifo_inter_out,
+  T_data_t1                                                   weights[T_IN_NUM_T / T_UNROLL][STENCIL_PACK_FACTOR][K_T][K_T],  
+  uint                                                        stride,
+  uint                                                        layer_in_num_t,
+  uint                                                        layer_in_h_t,
+  uint                                                        oo_bound,
+  uint                                                        iter_bound,
+  uint                                                        bound
+){
+  T_data_t0 line_buf1[STENCIL_PACK_FACTOR][T_WS];
+#pragma HLS ARRAY_PARTITION variable=line_buf1 dim=1 complete
+#pragma HLS ARRAY_PARTITION variable=line_buf1 dim=2 complete
+
+  bool col_skip = 0;
+  bool row_skip = 0;
+  bool col_strip_skip = 0;
+  bool row_strip_skip = 0;
+  uint trans_cnt = 0;
+  uint inner_trans_cnt = 0;
+
+  ap_uint<T_DATA_WIDTH0> utmp[STENCIL_PACK_FACTOR];
+#pragma HLS ARRAY_PARTITION variable=utmp complete  
+  T_data_t0 sums[STENCIL_PACK_FACTOR];
+#pragma HLS ARRAY_PARTITION variable=sums complete  
+  ap_uint<T_DATA_WIDTH0> sums_utmp[STENCIL_PACK_FACTOR];
+#pragma HLS ARRAY_PARTITION variable=sums_utmp complete  
+
+  int oo = 0;
+  int iter = 0;
+//  int oo_bound = layer_in_num_t / T_UNROLL;
+//  int iter_bound = layer_in_h_t * T_IN_W_T + (T_WS - 1) * T_IN_W_T + T_WS - 1;
+//  int bound = oo_bound * iter_bound;
+
+  ap_uint<T_DATA_WIDTH0> sel_tmp[STENCIL_PACK_FACTOR];
+#pragma HLS ARRAY_PARTITION variable=sel_tmp complete  
+
+  for (int total_iter = 0; total_iter < bound; total_iter++){
+#pragma HLS PIPELINE II=1    
+    if (iter == 0){
+      trans_cnt = 0;
+      inner_trans_cnt = 0;
+    }
+
+    if (iter < layer_in_h_t * T_IN_W_T){
+      ap_uint<T_DATA_WIDTH0 * STENCIL_PACK_FACTOR> wide_data_in;
+      wide_data_in = fifo_inter_in.read();
+      for (int dup = 0; dup < STENCIL_PACK_FACTOR; dup++){
+#pragma HLS UNROLL
+        sel_tmp[dup] = wide_data_in(T_DATA_WIDTH0 - 1, 0);
+        wide_data_in = wide_data_in >> T_DATA_WIDTH0;
+      }
+    }
+
+    for (int dup = 0; dup < STENCIL_PACK_FACTOR; dup++){
+      for (int i = T_WS - 1; i >= 1; i--){
+#pragma HLS UNROLL
+        line_buf1[dup][i] = line_buf1[dup][i - 1];
+      }
+    
+      if (iter < layer_in_h_t * T_IN_W_T){
+        ap_uint<T_DATA_WIDTH0> sel_tmp_dup = sel_tmp[dup];
+//        sel_tmp = fifo_inter_in.read();        
+        line_buf1[dup][0] = Reinterpret<T_data_t0>(sel_tmp_dup);
+      } else {      
+        line_buf1[dup][0] = 0.0;
+      }
+//      line_buf2[dup][0] = tmp1;
+//      line_buf3[dup][0] = tmp2;
+
+      // mults
+      T_data_t0 prod_0_0 = line_buf1[dup][T_WS - 1] * weights[oo][dup][0][0];
+      sums[dup] = prod_0_0;
+      sums_utmp[dup] = Reinterpret<ap_uint<T_DATA_WIDTH0> >(prod_0_0);
+    }
+
+    ap_uint<T_DATA_WIDTH0 * STENCIL_PACK_FACTOR> wide_data_out = (
+#if STENCIL_PACK_FACTOR == 4
+      sums_utmp[3], sums_utmp[2], sums_utmp[1], sums_utmp[0]
+#endif        
+    );
+
+    fifo_inter_out.write(wide_data_out);
+
+    iter++;
+    if (iter == iter_bound){
+      iter = 0;
+      oo++;
+      if (oo == oo_bound){
+        oo = 0;
+      }
+    }
+  }
+}
+
+template <class T_data_t0, class T_data_t1, int T_IN_NUM_T, int T_IN_H_T, int T_IN_W_T, int T_UNROLL, int T_WS, int T_DATA_WIDTH0, int T_DATA_WIDTH1>
+void stencil_w1_merger(
+  hls::stream<ap_uint<T_DATA_WIDTH0 * STENCIL_PACK_FACTOR> >  fifo_inter[STENCIL_SPLIT_FACTOR],
+  hls::stream<ap_uint<T_DATA_WIDTH0 * T_UNROLL> >             &fifo_out,
+  uint                                                        stride,
+  uint                                                        layer_in_num_t,
+  uint                                                        layer_in_h_t,
+  uint                                                        oo_bound,
+  uint                                                        iter_bound,
+  uint                                                        bound
+){
+  bool col_skip = 0;
+  bool row_skip = 0;
+  bool col_strip_skip = 0;
+  bool row_strip_skip = 0;
+  uint trans_cnt = 0;
+  uint inner_trans_cnt = 0;
+
+  ap_uint<T_DATA_WIDTH0> utmp[T_UNROLL];
+#pragma HLS ARRAY_PARTITION variable=utmp complete
+
+  int oo = 0;
+  int iter = 0;
+//  int oo_bound = layer_in_num_t / T_UNROLL;
+//  int iter_bound = layer_in_h_t * T_IN_W_T + (T_WS - 1) * T_IN_W_T + T_WS - 1;
+//  int bound = oo_bound * iter_bound;
+
+  for (int total_iter = 0; total_iter < bound; total_iter++){
+#pragma HLS PIPELINE II=1    
+    if (iter == 0){
+      trans_cnt = 0;
+      inner_trans_cnt = 0;
+    }
+
+    for (int ii = 0; ii < STENCIL_SPLIT_FACTOR; ii++){
+#pragma HLS UNROLL          
+      ap_uint<T_DATA_WIDTH0 * STENCIL_PACK_FACTOR> utmp_tmp = fifo_inter[ii].read();
+      for (int jj = 0; jj < STENCIL_PACK_FACTOR; jj++){
+#pragma HLS UNROLL
+        utmp[ii * STENCIL_PACK_FACTOR + jj] = utmp_tmp(T_DATA_WIDTH0 - 1, 0);
+        utmp_tmp = utmp_tmp >> T_DATA_WIDTH0;
+      }
+//            utmp[ii] = utmp_tmp;
+    }             
+
+    if (iter >= (T_WS - 1) * T_IN_W_T + T_WS - 1){      
+      col_skip = (inner_trans_cnt % stride != stride - 1);
+      row_skip = ((inner_trans_cnt / (T_IN_W_T - (T_WS - 1))) % stride != stride - 1);
+      col_strip_skip = trans_cnt % T_IN_W_T >= (T_IN_W_T - (T_WS - 1));
+      row_strip_skip = trans_cnt / T_IN_W_T >= (layer_in_h_t - (T_WS - 1));
+      if (!col_strip_skip && !row_strip_skip){
+        if (!col_skip && !row_skip){
+
+          ap_uint<T_DATA_WIDTH0 * T_UNROLL> wide_data = (
+#if DEPTH_CONV_LANE == 16
+            utmp[15], utmp[14], utmp[13], utmp[12],
+            utmp[11], utmp[10], utmp[9], utmp[8],
+            utmp[7], utmp[6], utmp[5], utmp[4],
+            utmp[3], utmp[2], utmp[1], utmp[0]
+#elif DEPTH_CONV_LANE == 8          
+            utmp[7], utmp[6], utmp[5], utmp[4],
+            utmp[3], utmp[2], utmp[1], utmp[0]
+#elif DEPTH_CONV_LANE == 4
+            utmp[3], utmp[2], utmp[1], utmp[0]
+#elif DEPTH_CONV_LANE == 2           
+            utmp[1], utmp[0]
+#elif DEPTH_CONV_LANE == 1            
+            utmp[0]
+#endif
+            );
+          fifo_out.write(wide_data);       
         }
         inner_trans_cnt++;
       }
@@ -397,223 +703,51 @@ void stencil_w3(
 template <class T_data_t0, class T_data_t1, int T_IN_NUM_T, int T_IN_H_T, int T_IN_W_T, int T_UNROLL, int T_WS, int T_DATA_WIDTH0, int T_DATA_WIDTH1>
 void stencil_w1(
   hls::stream<ap_uint<T_DATA_WIDTH0 * T_UNROLL> > &fifo_in,
-  T_data_t1                                       weights[T_IN_NUM_T / T_UNROLL][T_UNROLL][K_T][K_T],
+//  T_data_t1                                       weights[T_IN_NUM_T / T_UNROLL][T_UNROLL][K_T][K_T],  
+#if STENCIL_SPLIT_FACTOR == 2
+  T_data_t1                                       weights0[T_IN_NUM_T / T_UNROLL][STENCIL_PACK_FACTOR][K_T][K_T],
+  T_data_t1                                       weights1[T_IN_NUM_T / T_UNROLL][STENCIL_PACK_FACTOR][K_T][K_T],
+#endif  
   hls::stream<ap_uint<T_DATA_WIDTH0 * T_UNROLL> > &fifo_out,
   uint                                            stride,
   uint                                            layer_in_num_t,
   uint                                            layer_in_h_t
-){
+){  
 #pragma HLS INLINE off
-  T_data_t0 line_buf1[T_UNROLL][T_WS];
-#pragma HLS ARRAY_PARTITION variable=line_buf1 dim=1 complete
-#pragma HLS ARRAY_PARTITION variable=line_buf1 dim=2 complete
+#pragma HLS DATAFLOW
 
+  hls::stream<ap_uint<T_DATA_WIDTH0 * STENCIL_PACK_FACTOR> > fifo_inter_in[STENCIL_SPLIT_FACTOR];
+  hls::stream<ap_uint<T_DATA_WIDTH0 * STENCIL_PACK_FACTOR> > fifo_inter_out[STENCIL_SPLIT_FACTOR];
+#pragma HLS STREAM variable=fifo_inter_in depth=2
+#pragma HLS STREAM variable=fifo_inter_out depth=2  
 
-  ap_uint<T_DATA_WIDTH0> utmp[T_UNROLL];
-#pragma HLS ARRAY_PARTITION variable=utmp complete
-  T_data_t0 sums[T_UNROLL];
-#pragma HLS ARRAY_PARTITION variable=sums complete
+  uint oo_bound = layer_in_num_t / T_UNROLL;
+  uint iter_bound = layer_in_h_t * T_IN_W_T + (T_WS - 1) * T_IN_W_T + T_WS - 1;
+  uint bound = oo_bound * iter_bound;
 
-  bool col_skip = 0;
-  bool row_skip = 0;
-  bool col_strip_skip = 0;
-  bool row_strip_skip = 0;
+  stencil_w1_distributor<T_data_t0, T_data_t1, T_IN_NUM_T, T_IN_H_T, T_IN_W_T, T_UNROLL, T_WS, T_DATA_WIDTH0, T_DATA_WIDTH1>(
+      fifo_in, fifo_inter_in,
+      stride, layer_in_num_t, layer_in_h_t,
+      oo_bound, iter_bound, bound);
 
-  int oo = 0;
-  int iter = 0;
-  int oo_bound = layer_in_num_t / T_UNROLL;
-  int iter_bound = layer_in_h_t * T_IN_W_T + (T_WS - 1) * T_IN_W_T + T_WS - 1;
-  int total_bound = oo_bound * iter_bound;
-  uint trans_cnt = 0;
-  uint inner_trans_cnt = 0;
+//  compute_loop: for (int i = 0; i < T_UNROLL; i++){
+//#pragma HLS UNROLL
+//    stencil_w3_compute(fifo_inter_in[i], fifo_inter_out[i], weights, 
+//                       stride, layer_in_num_t, layer_in_h_t);
+//  }
 
-  for (int total_iter = 0; total_iter < total_bound; total_iter++){
-#pragma HLS PIPELINE II=1    
-    if (iter == 0){
-      trans_cnt = 0;
-      inner_trans_cnt = 0;
-    }
+#if STENCIL_SPLIT_FACTOR == 2
+  stencil_w1_compute<T_data_t0, T_data_t1, T_IN_NUM_T, T_IN_H_T, T_IN_W_T, T_UNROLL, T_WS, T_DATA_WIDTH0, T_DATA_WIDTH1>(
+    fifo_inter_in[0], fifo_inter_out[0], weights0, stride, layer_in_num_t, layer_in_h_t, oo_bound, iter_bound, bound);
+  stencil_w1_compute<T_data_t0, T_data_t1, T_IN_NUM_T, T_IN_H_T, T_IN_W_T, T_UNROLL, T_WS, T_DATA_WIDTH0, T_DATA_WIDTH1>(
+    fifo_inter_in[1], fifo_inter_out[1], weights1, stride, layer_in_num_t, layer_in_h_t, oo_bound, iter_bound, bound);
+#endif      
 
-    ap_uint<T_DATA_WIDTH0 * T_UNROLL> wide_data_in;
-    if (iter < layer_in_h_t * T_IN_W_T){
-      wide_data_in = fifo_in.read();
-    }
-
-    for (int dup = 0; dup < T_UNROLL; dup++){
-      for (int i = T_WS - 1; i >= 1; i--){
-#pragma HLS UNROLL
-        line_buf1[dup][i] = line_buf1[dup][i - 1];
-      }
-      
-      if (iter < layer_in_h_t * T_IN_W_T){        
-        ap_uint<T_DATA_WIDTH0> sel_tmp;
-#if DEPTH_CONV_LANE == 16
-        switch(dup){
-          case 0:
-            sel_tmp = wide_data_in(T_DATA_WIDTH0 * 1 - 1, T_DATA_WIDTH0 * 0);
-            break;
-          case 1:
-            sel_tmp = wide_data_in(T_DATA_WIDTH0 * 2 - 1, T_DATA_WIDTH0 * 1);
-            break;
-          case 2:
-            sel_tmp = wide_data_in(T_DATA_WIDTH0 * 3 - 1, T_DATA_WIDTH0 * 2);
-            break;
-          case 3:
-            sel_tmp = wide_data_in(T_DATA_WIDTH0 * 4 - 1, T_DATA_WIDTH0 * 3);
-            break;
-          case 4:
-            sel_tmp = wide_data_in(T_DATA_WIDTH0 * 5 - 1, T_DATA_WIDTH0 * 4);
-            break;
-          case 5:
-            sel_tmp = wide_data_in(T_DATA_WIDTH0 * 6 - 1, T_DATA_WIDTH0 * 5);
-            break;
-          case 6:
-            sel_tmp = wide_data_in(T_DATA_WIDTH0 * 7 - 1, T_DATA_WIDTH0 * 6);
-            break;
-          case 7:
-            sel_tmp = wide_data_in(T_DATA_WIDTH0 * 8 - 1, T_DATA_WIDTH0 * 7);
-            break;
-          case 8:
-            sel_tmp = wide_data_in(T_DATA_WIDTH0 * 9 - 1, T_DATA_WIDTH0 * 8);
-            break;
-          case 9:
-            sel_tmp = wide_data_in(T_DATA_WIDTH0 * 10 - 1, T_DATA_WIDTH0 * 9);
-            break;
-          case 10:
-            sel_tmp = wide_data_in(T_DATA_WIDTH0 * 11 - 1, T_DATA_WIDTH0 * 10);
-            break;
-          case 11:
-            sel_tmp = wide_data_in(T_DATA_WIDTH0 * 12 - 1, T_DATA_WIDTH0 * 11);
-            break;
-          case 12:
-            sel_tmp = wide_data_in(T_DATA_WIDTH0 * 13 - 1, T_DATA_WIDTH0 * 12);
-            break;
-          case 13:
-            sel_tmp = wide_data_in(T_DATA_WIDTH0 * 14 - 1, T_DATA_WIDTH0 * 13);
-            break;
-          case 14:
-            sel_tmp = wide_data_in(T_DATA_WIDTH0 * 15 - 1, T_DATA_WIDTH0 * 14);
-            break;
-          case 15:
-            sel_tmp = wide_data_in(T_DATA_WIDTH0 * 16 - 1, T_DATA_WIDTH0 * 15);
-            break;
-        }       
-#elif DEPTH_CONV_LANE == 8
-        switch(dup){
-          case 0:
-            sel_tmp = wide_data_in(T_DATA_WIDTH0 * 1 - 1, T_DATA_WIDTH0 * 0);
-            break;
-          case 1:
-            sel_tmp = wide_data_in(T_DATA_WIDTH0 * 2 - 1, T_DATA_WIDTH0 * 1);
-            break;
-          case 2:
-            sel_tmp = wide_data_in(T_DATA_WIDTH0 * 3 - 1, T_DATA_WIDTH0 * 2);
-            break;
-          case 3:
-            sel_tmp = wide_data_in(T_DATA_WIDTH0 * 4 - 1, T_DATA_WIDTH0 * 3);
-            break;
-          case 4:
-            sel_tmp = wide_data_in(T_DATA_WIDTH0 * 5 - 1, T_DATA_WIDTH0 * 4);
-            break;
-          case 5:
-            sel_tmp = wide_data_in(T_DATA_WIDTH0 * 6 - 1, T_DATA_WIDTH0 * 5);
-            break;
-          case 6:
-            sel_tmp = wide_data_in(T_DATA_WIDTH0 * 7 - 1, T_DATA_WIDTH0 * 6);
-            break;
-          case 7:
-            sel_tmp = wide_data_in(T_DATA_WIDTH0 * 8 - 1, T_DATA_WIDTH0 * 7);
-            break;
-        }
-#elif DEPTH_CONV_LANE == 4
-        switch(dup){
-          case 0:
-            sel_tmp = wide_data_in(T_DATA_WIDTH0 * 1 - 1, T_DATA_WIDTH0 * 0);
-            break;
-          case 1:
-            sel_tmp = wide_data_in(T_DATA_WIDTH0 * 2 - 1, T_DATA_WIDTH0 * 1);
-            break;
-          case 2:
-            sel_tmp = wide_data_in(T_DATA_WIDTH0 * 3 - 1, T_DATA_WIDTH0 * 2);
-            break;
-          case 3:
-            sel_tmp = wide_data_in(T_DATA_WIDTH0 * 4 - 1, T_DATA_WIDTH0 * 3);
-            break;
-        }
-#elif DEPTH_CONV_LANE == 2
-        switch(dup){
-          case 0:
-            sel_tmp = wide_data_in(T_DATA_WIDTH0 * 1 - 1, T_DATA_WIDTH0 * 0);
-            break;
-          case 1:
-            sel_tmp = wide_data_in(T_DATA_WIDTH0 * 2 - 1, T_DATA_WIDTH0 * 1);
-            break;
-        }
-#elif DEPTH_CONV_LANE == 1
-        switch(dup){
-          case 0:
-            sel_tmp = wide_data_in(T_DATA_WIDTH0 * 1 - 1, T_DATA_WIDTH0 * 0);
-            break;
-        }
-#endif        
-        line_buf1[dup][0] = Reinterpret<T_data_t0>(sel_tmp);
-      } else {      
-        line_buf1[dup][0] = 0.0;
-      }
-
-      // mults
-      T_data_t0 prod_0_0 = line_buf1[dup][T_WS - 1] * weights[oo][dup][0][0];
-      sums[dup]  = prod_0_0;
-    }
-
-    if (iter >= (T_WS - 1) * T_IN_W_T + T_WS - 1){      
-      col_skip = (inner_trans_cnt % stride != stride - 1);
-      row_skip = ((inner_trans_cnt / (T_IN_W_T - (T_WS - 1))) % stride != stride - 1);
-      col_strip_skip = trans_cnt % T_IN_W_T >= (T_IN_W_T - (T_WS - 1));
-      row_strip_skip = trans_cnt / T_IN_W_T >= (layer_in_h_t - (T_WS - 1));
-     
-      if (!col_strip_skip && !row_strip_skip){
-        if (!col_skip && !row_skip){
-
-        for (int ii = 0; ii < T_UNROLL; ii++){
-          T_data_t0 sum_tmp = sums[ii];
-          ap_uint<T_DATA_WIDTH0> utmp_tmp = Reinterpret<ap_uint<T_DATA_WIDTH0> >(sum_tmp);
-          utmp[ii] = utmp_tmp;
-        }          
-        ap_uint<T_DATA_WIDTH0 * T_UNROLL> wide_data = (
-#if DEPTH_CONV_LANE == 16
-            utmp[15], utmp[14], utmp[13], utmp[12],
-            utmp[11], utmp[10], utmp[9], utmp[8],
-            utmp[7], utmp[6], utmp[5], utmp[4],
-            utmp[3], utmp[2], utmp[1], utmp[0]           
-#elif DEPTH_CONV_LANE == 8          
-            utmp[7], utmp[6], utmp[5], utmp[4],
-            utmp[3], utmp[2], utmp[1], utmp[0]
-#elif DEPTH_CONV_LANE == 4
-            utmp[3], utmp[2], utmp[1], utmp[0]
-#elif DEPTH_CONV_LANE == 2           
-            utmp[1], utmp[0]
-#elif DEPTH_CONV_LANE == 1            
-            utmp[0]
-#endif
-            );
-        fifo_out.write(wide_data); 
-
-        }
-        inner_trans_cnt++;
-      }
-      trans_cnt++;
-    }
-
-    iter++;
-    if (iter == iter_bound){
-      iter = 0;
-      oo++;
-      if (oo == oo_bound){
-        oo = 0;
-      }
-    }
-  }
+  stencil_w1_merger<T_data_t0, T_data_t1, T_IN_NUM_T, T_IN_H_T, T_IN_W_T, T_UNROLL, T_WS, T_DATA_WIDTH0, T_DATA_WIDTH1>(
+    fifo_inter_out,    
+    fifo_out,
+    stride, layer_in_num_t, layer_in_h_t,
+    oo_bound, iter_bound, bound);
 }
 
 template <class T_data_t0, int T_IN_H_T, int T_IN_W_T, int T_UNROLL, int T_WS, int T_DATA_WIDTH0>
@@ -652,6 +786,8 @@ void maxpool_w2(
   int iter_bound = layer_in_h_t * T_IN_W_T + (T_WS - 1) * T_IN_W_T + T_WS - 1;
   int total_bound = oo_bound * iter_bound;
 
+//  for (int oo = 0; oo < layer_out_num_t / T_UNROLL; oo++){
+//  for (int iter = 0; iter < layer_in_h_t * T_IN_W_T + (T_WS - 1) * T_IN_W_T + T_WS - 1; iter++){
   for (int total_iter = 0; total_iter < total_bound; total_iter++){
 #pragma HLS PIPELINE II=1    
     if (iter == 0){
@@ -661,6 +797,12 @@ void maxpool_w2(
     ap_uint<T_DATA_WIDTH0 * T_UNROLL> wide_data_in;
     if (iter < layer_in_h_t * T_IN_W_T){
       wide_data_in = fifo_in.read();
+#ifdef DEBUG
+      if (iter == 0){
+        T_data_t0 tmpf = Reinterpret<T_data_t0>(wide_data_in);
+//        cout << "pool: " << tmpf << endl;
+      }
+#endif      
     }
 
     for (int dup = 0; dup < T_UNROLL; dup++){
@@ -786,6 +928,9 @@ void maxpool_w2(
         }
 #endif     
         line_buf1[dup][0] = Reinterpret<T_data_t0>(sel_tmp);
+#ifdef DEBUG
+//        cout << "max_pool: " << line_buf1[dup][0] << " idx: " << iter << endl;
+#endif        
       } else {      
         line_buf1[dup][0] = 0.0;
       }
@@ -796,6 +941,8 @@ void maxpool_w2(
       T_data_t0 mux_0_1 = max(line_buf1[dup][T_WS - 1], line_buf1[dup][T_WS - 2]);
       T_data_t0 mux_1_0 = max(mux_0_0, mux_0_1);
 
+//      cout << max_en << endl;
+
       if (max_en == 1)
         sums[dup] = mux_1_0;
       else
@@ -805,9 +952,13 @@ void maxpool_w2(
     if (iter >= (T_WS - 1) * T_IN_W_T + T_WS - 1){      
       col_skip = (trans_cnt % stride != 0);
       row_skip = ((trans_cnt / T_IN_W_T) % stride != 0);
+#ifdef DEBUG
+//      cout << "trans_cnt: " << trans_cnt << " row_skip: " << row_skip << " col_skip: " << col_skip << " stride: " << stride << endl;
+#endif
       if (!col_skip && !row_skip){
         for (int ii = 0; ii < T_UNROLL; ii++){
           T_data_t0 sum_tmp = sums[ii];
+//          cout << "max_pool output: " << sum_tmp << " iter: " << iter << endl;
           ap_uint<T_DATA_WIDTH0> utmp_tmp = Reinterpret<ap_uint<T_DATA_WIDTH0> >(sum_tmp);
           utmp[ii] = utmp_tmp;
         }          
@@ -828,9 +979,19 @@ void maxpool_w2(
             utmp[0]
 #endif            
             );
+#ifdef DEBUG
+//        if (trans_cnt == 0)
+//          cout << "max_pool: " << sums[0] << endl;
+#endif
         fifo_out.write(wide_data); 
+#ifdef DEBUG
+        max_pool_cout_cnt++;
+#endif
       }
       trans_cnt++;
+//      if (iter == layer_in_h_t * T_IN_W_T + (T_WS - 1) * T_IN_W_T + T_WS - 1 - 1){
+//        trans_cnt = 0;
+//      }
     }
 
     iter++;
@@ -841,7 +1002,11 @@ void maxpool_w2(
         oo = 0;
       }
     }
+//  }
   }
+#ifdef DEBUG
+//  cout << "max_pool: " << max_pool_cout_cnt << endl;
+#endif 
 }
 
 #endif

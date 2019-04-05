@@ -755,7 +755,7 @@ def run(f_tile, f_model, f_model_config, f_input_config):
       if stage1_layer_cnt < STAGE1_LAYERS - 1:
         if stage1_channel_cnt == 1:
           layer_config['NXT_LAYER_BATCH'] = 2
-          max_layer_batch = max(max_layer_batch, 2)
+          max_layer_batch = max(max_layer_batch, tile['MAX_LAYER_BATCH'])
 
       layer_en = depth_conv_en + (conv_en << 1) + (relu_en << 2) + (pool_en << 3) + (up_sample_en << 4) + (bias_en << 5) + (inter_load_en << 6) + (inter_write_en << 7)
 
@@ -979,7 +979,7 @@ def run(f_tile, f_model, f_model_config, f_input_config):
       if stage2_layer_cnt < STAGE2_LAYERS - 1:
         if stage2_channel_cnt == 1:
           layer_config['NXT_LAYER_BATCH'] = 2
-          max_layer_batch = max(max_layer_batch, 2)
+          max_layer_batch = max(max_layer_batch, tile['MAX_LAYER_BATCH'])
 
       layer_en = depth_conv_en + (conv_en << 1) + (relu_en << 2) + (pool_en << 3) + (up_sample_en << 4) + (bias_en << 5) + (inter_load_en << 6) + (inter_write_en << 7)
 

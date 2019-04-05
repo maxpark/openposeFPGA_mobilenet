@@ -203,7 +203,7 @@ void cin_load_fifo_write(
  */
 void cin_load(
   bus_t0                         *global_cin, 
-  uint                           config[CONFIG_PARAMS],
+  uint                           config[],
   hls::stream<CinLoadData0Type>  &fifo_cin,
   hls::stream<ConfigInst>        &fifo_config_out
 ){
@@ -967,7 +967,7 @@ void weight_load(
   bus_t2 bias_burst_buf[OUT_NUM_T / BUS_PACK_FACTOR2];
 #pragma HLS RESOURCE variable=weight_burst_buf1 core=XPM_MEMORY uram
 #pragma HLS RESOURCE variable=weight_burst_buf2 core=XPM_MEMORY uram  
-#pragma HLS RESOURCE variable=bias_burst_buf core=XPM_MEMORY ura#pragma HLS RESOURCE variable=bias_burst_buf core=XPM_MEMORY uramm
+#pragma HLS RESOURCE variable=bias_burst_buf core=XPM_MEMORY uram
 
   // tiling iterators
 	uint in_num_iter = 0;
@@ -1390,10 +1390,21 @@ void depth_conv(
     ap_uint<1>  POOL_EN          = LAYER_EN[3];
     ap_uint<1>  UP_SAMPLE_EN     = LAYER_EN[4]; // reserved
   
-    data_t1 weight_buf[IN_NUM_T / DEPTH_CONV_LANE][DEPTH_CONV_LANE][K_T][K_T];
-#pragma HLS ARRAY_PARTITION variable=weight_buf dim=2 complete
-#pragma HLS ARRAY_PARTITION variable=weight_buf dim=3 complete
-#pragma HLS ARRAY_PARTITION variable=weight_buf dim=4 complete
+//    data_t1 weight_buf[IN_NUM_T / DEPTH_CONV_LANE][DEPTH_CONV_LANE][K_T][K_T];
+//#pragma HLS ARRAY_PARTITION variable=weight_buf dim=2 complete
+//#pragma HLS ARRAY_PARTITION variable=weight_buf dim=3 complete
+//#pragma HLS ARRAY_PARTITION variable=weight_buf dim=4 complete
+
+#if STENCIL_SPLIT_FACTOR == 2
+    data_t1 weight_buf0[IN_NUM_T / DEPTH_CONV_LANE][STENCIL_PACK_FACTOR][K_T][K_T];
+    data_t1 weight_buf1[IN_NUM_T / DEPTH_CONV_LANE][STENCIL_PACK_FACTOR][K_T][K_T];
+#pragma HLS ARRAY_PARTITION variable=weight_buf0 dim=2 complete
+#pragma HLS ARRAY_PARTITION variable=weight_buf0 dim=3 complete
+#pragma HLS ARRAY_PARTITION variable=weight_buf0 dim=4 complete
+#pragma HLS ARRAY_PARTITION variable=weight_buf1 dim=2 complete
+#pragma HLS ARRAY_PARTITION variable=weight_buf1 dim=3 complete
+#pragma HLS ARRAY_PARTITION variable=weight_buf1 dim=4 complete
+#endif    
   
     uint FILTER_S = (DEPTH_CONV_EN == 1)? (uint)FILTER_S1: (CONV_EN == 1)? (uint)FILTER_S2: 1;
     bool separable_conv = (DEPTH_CONV_EN == 1) && (CONV_EN == 1);
@@ -1438,13 +1449,31 @@ void depth_conv(
         while(!done1){
 #pragma HLS PIPELINE II=1
           WeightLoadData0Type w_tmp = fifo_weight.read();
-          for (int lane = 0; lane < DEPTH_CONV_LANE; lane++){
-#pragma HLS UNROLL
-            ap_uint<DATA_W1> utmp = w_tmp(DATA_W1 - 1, 0);
-            weight_buf[o][lane][p][q] = Reinterpret<data_t1>(utmp);
-            w_tmp = w_tmp >> DATA_W1;                
-          }
+//          for (int lane = 0; lane < DEPTH_CONV_LANE; lane++){
+//#pragma HLS UNROLL
+//            ap_uint<DATA_W1> utmp = w_tmp(DATA_W1 - 1, 0);
+//            weight_buf[o][lane][p][q] = Reinterpret<data_t1>(utmp);
+//            w_tmp = w_tmp >> DATA_W1;                
+//          }
+
           
+#if STENCIL_SPLIT_FACTOR == 2
+          WeightLoadData0Type w_tmp0 = w_tmp;
+          for (int lane = 0; lane < STENCIL_PACK_FACTOR; lane++){
+#pragma HLS UNROLL
+            ap_uint<DATA_W1> utmp = w_tmp0(DATA_W1 - 1, 0);
+            weight_buf0[o][lane][p][q] = Reinterpret<data_t1>(utmp);
+            w_tmp0 = w_tmp0 >> DATA_W1;
+          }
+          WeightLoadData0Type w_tmp1 = w_tmp >> DATA_W1 * STENCIL_PACK_FACTOR;
+          for (int lane = 0; lane < STENCIL_PACK_FACTOR; lane++){
+#pragma HLS UNROLL
+            ap_uint<DATA_W1> utmp = w_tmp1(DATA_W1 - 1, 0);
+            weight_buf1[o][lane][p][q] = Reinterpret<data_t1>(utmp);
+            w_tmp1 = w_tmp1 >> DATA_W1;
+          }        
+#endif          
+
           q++;
           if (q == FILTER_S1){
             q = 0;
@@ -1462,9 +1491,19 @@ void depth_conv(
 
         // compute
         if (FILTER_S1 == 1){
-          stencil_w1<data_t0, data_t1, IN_NUM_T, IN_H_T, IN_W_T, DEPTH_CONV_LANE, 1, DATA_W0, DATA_W1>(fifo_cin, weight_buf, fifo_cout, (uint)STRIDE, LAYER_IN_NUM_T, LAYER_IN_H_T);
+//          stencil_w1<data_t0, data_t1, IN_NUM_T, IN_H_T, IN_W_T, DEPTH_CONV_LANE, 1, DATA_W0, DATA_W1>(fifo_cin, weight_buf, fifo_cout, (uint)STRIDE, LAYER_IN_NUM_T, LAYER_IN_H_T);
+          stencil_w1<data_t0, data_t1, IN_NUM_T, IN_H_T, IN_W_T, DEPTH_CONV_LANE, 1, DATA_W0, DATA_W1>(fifo_cin, 
+#if STENCIL_SPLIT_FACTOR == 2
+              weight_buf0, weight_buf1,
+#endif              
+              fifo_cout, (uint)STRIDE, LAYER_IN_NUM_T, LAYER_IN_H_T);         
         } else if (FILTER_S1 == 3){
-          stencil_w3<data_t0, data_t1, IN_NUM_T, IN_H_T + 2, IN_W_T + 2, DEPTH_CONV_LANE, 3, DATA_W0, DATA_W1>(fifo_cin, weight_buf, fifo_cout, (uint)STRIDE, LAYER_IN_NUM_T, LAYER_IN_H_T + 2);
+//          stencil_w3<data_t0, data_t1, IN_NUM_T, IN_H_T + 2, IN_W_T + 2, DEPTH_CONV_LANE, 3, DATA_W0, DATA_W1>(fifo_cin, weight_buf, fifo_cout, (uint)STRIDE, LAYER_IN_NUM_T, LAYER_IN_H_T + 2);
+          stencil_w3<data_t0, data_t1, IN_NUM_T, IN_H_T + 2, IN_W_T + 2, DEPTH_CONV_LANE, 3, DATA_W0, DATA_W1>(fifo_cin, 
+#if STENCIL_SPLIT_FACTOR == 2
+              weight_buf0, weight_buf1,
+#endif              
+              fifo_cout, (uint)STRIDE, LAYER_IN_NUM_T, LAYER_IN_H_T + 2);
         }
         break;
       }
@@ -3089,7 +3128,7 @@ void engine(
   bus_t1 *global_weight,
   bus_t2 *global_bias,
   bus_t0 *global_cout,
-  uint    config[CONFIG_PARAMS]
+  uint    config[]
 ){
 #pragma HLS DATAFLOW
   /**
@@ -3116,6 +3155,10 @@ void engine(
 #pragma HLS STREAM variable=fifo_weight_load_0 depth=64
 #pragma HLS STREAM variable=fifo_weight_load_1 depth=64
 #pragma HLS STREAM variable=fifo_weight_load_2 depth=64
+// The fifo depth of bias needs to be large enough to prevent stalling.
+// The stall happens as it takes time for Conv to generate data to feed Relu.
+// Relu will wait for data from Conv and thus stall the bias.
+
   // Module: inter_load
   // Output ports:
   // 0: cout -> depth_conv
@@ -3284,11 +3327,10 @@ void top_kernel(
   int layer_id = 0;
   while(layer_id < layer_num){   
     cur_layer_batch = nxt_layer_batch;
-//    cout << layer_id << " " << cur_layer_batch << endl;
+    cout << layer_id << " " << cur_layer_batch << endl;
     memcpy((void*)config, (void*)(&layer_config[4 + CONFIG_PARAMS * layer_id]), sizeof(unsigned int) * CONFIG_PARAMS * cur_layer_batch);
     nxt_layer_batch = config[CONFIG_PARAMS * (cur_layer_batch - 1) + 25 - 1];
     config[25 - 1] = cur_layer_batch;
-    
     engine(global_cin, global_weight, global_bias, global_cout, config);
     layer_id += cur_layer_batch;
   }

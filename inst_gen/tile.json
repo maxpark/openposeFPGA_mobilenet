@@ -8,5 +8,6 @@
   "K_T": 3,
   "SA_ROWS": 8,
   "SA_COLS": 8,
-  "SA_SIMD": 8
+  "SA_SIMD": 8,
+  "MAX_LAYER_BATCH": 2
 }

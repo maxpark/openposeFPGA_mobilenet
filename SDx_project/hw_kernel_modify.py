@@ -25,6 +25,9 @@ def run(f_input, f_output):
       if line == 'void top_kernel(\n':
         input_content[i - 1] = 'extern "C" {\n'
 
+      if line == '    cout << layer_id << \" \" << cur_layer_batch << endl;\n':
+        input_content[i] = '//' + input_content[i]
+
       if i == len(input_content) - 1:
         input_content.append('}\n')
         break

@@ -4,6 +4,7 @@ import argparse
 import copy
 import multiprocessing
 import subprocess
+import time
 
 def list_split(ori_list, split_num):
   chunk_size = int(np.ceil(float(len(ori_list)) / split_num))
@@ -145,7 +146,7 @@ def layer_latency_est(params):
 '''
 sweep each layer, pick up the optimal in_num_t/out_num_t, in_h_t, in_w_t
 '''
-def model_latency_est(params, model_config, layer_configs):
+def model_latency_est(params, model_config, layer_configs, dynamic_tiling_level):
   VGG_LAYERS = model_config['VGG_LAYERS']
   STAGE1_LAYERS = model_config['STAGE1_LAYERS']
   STAGE1_ITER = model_config['STAGE1_ITER']
@@ -182,20 +183,28 @@ def model_latency_est(params, model_config, layer_configs):
       in_w_t = params['LAYER_IN_W_T']
       sa_cols = params['SA_COLS']
 
-      if layer_id == 0:
-        layer_in_num_t_candidates = list(filter(lambda x : x % 8 == 0, range(1, in_num_t + 1)))
-      elif layer_id == 12:
-        layer_in_num_t_candidates = [concat_num_t]
+      if dynamic_tiling_level == 0:
+        layer_in_num_t_candidates = [in_num_t]
+        layer_out_num_t_candidates = [out_num_t]
       else:
-        layer_in_num_t_candidates = [layer_out_num_t_prev]
+        if layer_id == 0:
+          layer_in_num_t_candidates = list(filter(lambda x : x % 8 == 0, range(1, in_num_t + 1)))
+        elif layer_id == 12:
+          layer_in_num_t_candidates = [concat_num_t]
+        else:
+          layer_in_num_t_candidates = [layer_out_num_t_prev]
 
-      if layer_id == 11 or layer_id == 12:
-        layer_out_num_t_candidates = [concat_num_t]
+        if layer_id == 11 or layer_id == 12:
+          layer_out_num_t_candidates = [concat_num_t]
+        else:
+          layer_out_num_t_candidates = list(filter(lambda x : x % 8 == 0, range(1, out_num_t + 1)))
+
+      if dynamic_tiling_level == 0 or dynamic_tiling_level == 1:
+        layer_in_h_t_candidates = [in_h_t]
+        layer_in_w_t_candidates = [in_w_t]
       else:
-        layer_out_num_t_candidates = list(filter(lambda x : x % 8 == 0, range(1, out_num_t + 1)))
-
-      layer_in_h_t_candidates = list(filter(lambda x : x % 2 == 0, range(1, in_h_t + 1)))
-      layer_in_w_t_candidates = list(filter(lambda x : x % sa_cols == 0, range(1, in_w_t + 1)))
+        layer_in_h_t_candidates = list(filter(lambda x : x % 2 == 0, range(1, in_h_t + 1)))
+        layer_in_w_t_candidates = list(filter(lambda x : x % sa_cols == 0, range(1, in_w_t + 1)))
 
       opt_layer_latency = np.inf
       for layer_in_num_t in layer_in_num_t_candidates:
@@ -245,18 +254,26 @@ def model_latency_est(params, model_config, layer_configs):
       in_w_t = params['LAYER_IN_W_T']
       sa_cols = params['SA_COLS']
 
-      if stage1_layer_cnt == 0:
-        layer_in_num_t_candidates = [concat_num_t]
+      if dynamic_tiling_level == 0:
+        layer_in_num_t_candidates = [in_num_t]
+        layer_out_num_t_candidates = [out_num_t]
       else:
-        layer_in_num_t_candidates = [layer_out_num_t_prev]
+        if stage1_layer_cnt == 0:
+          layer_in_num_t_candidates = [concat_num_t]
+        else:
+          layer_in_num_t_candidates = [layer_out_num_t_prev]
 
-      if stage1_layer_cnt == STAGE1_LAYERS - 1:
-        layer_out_num_t_candidates = [concat_num_t]
+        if stage1_layer_cnt == STAGE1_LAYERS - 1:
+          layer_out_num_t_candidates = [concat_num_t]
+        else:
+          layer_out_num_t_candidates = list(filter(lambda x : x % 8 == 0, range(1, out_num_t + 1)))
+
+      if dynamic_tiling_level == 0 or dynamic_tiling_level == 1:
+        layer_in_h_t_candidates = [in_h_t]
+        layer_in_w_t_candidates = [in_w_t]
       else:
-        layer_out_num_t_candidates = list(filter(lambda x : x % 8 == 0, range(1, out_num_t + 1)))
-
-      layer_in_h_t_candidates = list(filter(lambda x : x % 2 == 0, range(1, in_h_t + 1)))
-      layer_in_w_t_candidates = list(filter(lambda x : x % sa_cols == 0, range(1, in_w_t + 1)))
+        layer_in_h_t_candidates = list(filter(lambda x : x % 2 == 0, range(1, in_h_t + 1)))
+        layer_in_w_t_candidates = list(filter(lambda x : x % sa_cols == 0, range(1, in_w_t + 1)))
 
       opt_layer_latency = np.inf
       for layer_in_num_t in layer_in_num_t_candidates:
@@ -307,18 +324,26 @@ def model_latency_est(params, model_config, layer_configs):
       in_w_t = params['LAYER_IN_W_T']
       sa_cols = params['SA_COLS']
 
-      if stage2_layer_cnt == 0:
-        layer_in_num_t_candidates = [concat_num_t]
+      if dynamic_tiling_level == 0:
+        layer_in_num_t_candidates = [in_num_t]
+        layer_out_num_t_candidates = [out_num_t]
       else:
-        layer_in_num_t_candidates = [layer_out_num_t_prev]
+        if stage2_layer_cnt == 0:
+          layer_in_num_t_candidates = [concat_num_t]
+        else:
+          layer_in_num_t_candidates = [layer_out_num_t_prev]
 
-      if stage2_layer_cnt == STAGE2_LAYERS - 1:
-        layer_out_num_t_candidates = [concat_num_t]
+        if stage2_layer_cnt == STAGE2_LAYERS - 1:
+          layer_out_num_t_candidates = [concat_num_t]
+        else:
+          layer_out_num_t_candidates = list(filter(lambda x : x % 8 == 0, range(1, out_num_t + 1)))
+
+      if dynamic_tiling_level == 0 or dynamic_tiling_level == 1:
+        layer_in_h_t_candidates = [in_h_t]
+        layer_in_w_t_candidates = [in_w_t]
       else:
-        layer_out_num_t_candidates = list(filter(lambda x : x % 8 == 0, range(1, out_num_t + 1)))
-
-      layer_in_h_t_candidates = list(filter(lambda x : x % 2 == 0, range(1, in_h_t + 1)))
-      layer_in_w_t_candidates = list(filter(lambda x : x % sa_cols == 0, range(1, in_w_t + 1)))
+        layer_in_h_t_candidates = list(filter(lambda x : x % 2 == 0, range(1, in_h_t + 1)))
+        layer_in_w_t_candidates = list(filter(lambda x : x % sa_cols == 0, range(1, in_w_t + 1)))
 
       opt_layer_latency = np.inf
       for layer_in_num_t in layer_in_num_t_candidates:
@@ -419,7 +444,11 @@ def res_est(params):
 
   return DSP, BRAM18K
 
-def run(f_model, f_model_config, f_input_config, f_board):
+def run(f_model, f_model_config, f_input_config, f_board, parallel_en, dynamic_tiling_level):
+  print("*************************************************")
+  # record start time
+  global_timer_start = time.time()
+
   model = open(f_model, "r")
   with open(f_model_config, "r") as f:
     model_config = json.loads(f.read())
@@ -430,6 +459,9 @@ def run(f_model, f_model_config, f_input_config, f_board):
 
   config = {}
   config['BOARD'] = board_info
+  config['DYNAMIC_TILING_LEVEL'] = dynamic_tiling_level
+  print('Dynamic tiling level: ', dynamic_tiling_level)
+
   params = {}
   """
   Data Precision
@@ -778,7 +810,10 @@ def run(f_model, f_model_config, f_input_config, f_board):
           tmp_params = dict(params)
           params_list.append(tmp_params)
 
-  num_processes = int(multiprocessing.cpu_count() * 0.75)
+  if parallel_en is True:
+    num_processes = int(multiprocessing.cpu_count() * 0.75)
+  else:
+    num_processes = 1
   print('Parallelizing using %d processes...' % (num_processes))
 
   chunks = list_split(params_list, num_processes)
@@ -810,10 +845,11 @@ def run(f_model, f_model_config, f_input_config, f_board):
   opt_params = result['opt_params']
 
 # print out results
-  print("opt latency @(%d MHz): " % (opt_params['FRE']), opt_latency)
+  print("*************************************************")
+#  print("opt latency @(%d MHz): " % (opt_params['FRE']), opt_latency)
   opt_time = opt_latency / (opt_params['FRE'] * 1e6)
   opt_fps = 1 / opt_time
-  print("opt latency (s): ", opt_time)
+  print("opt latency (s) @%dMHz: " % (opt_params['FRE']), opt_time)
   print("opt FPS: ", opt_fps)
   opt_BRAM18K_util = opt_BRAM18K / board_info['BRAM18K'] * 100
   opt_DSP_util = opt_DSP / board_info['DSP'] * 100
@@ -823,6 +859,11 @@ def run(f_model, f_model_config, f_input_config, f_board):
     json.dump(opt_params, f, indent = 2)
 
   model.close()
+
+  print("*************************************************")
+  global_timer_end = time.time()
+  print('Total elapsed time (s): %.3f' % (global_timer_end - global_timer_start))
+  print("*************************************************")
 
 def param_sweep(params_list, config, model_config, layer_configs):
   opt_latency = np.inf
@@ -870,7 +911,7 @@ def param_sweep(params_list, config, model_config, layer_configs):
 #              print(params)
 
           # latency estimation
-          latency, params = model_latency_est(params, model_config, layer_configs)
+          latency, params = model_latency_est(params, model_config, layer_configs, config['DYNAMIC_TILING_LEVEL'])
 
 #          if (IN_NUM_T == 32) and (IN_W_T == 2) and (SIMD_LANE == 2):
 #            print(latency, SA_ROWS, SA_COLS, SA_SIMD_LANE)
@@ -914,11 +955,12 @@ def param_sweep(params_list, config, model_config, layer_configs):
 if __name__ == "__main__":
   parser = argparse.ArgumentParser(description='Design space exploration.')
 
-#  parser.add_argument('-t', '--tile', metavar='TILE', required=True, help='tiling configuration', dest='tile')
   parser.add_argument('-m', '--model', metavar='MODEL', required=True, help='model description', dest='model')
   parser.add_argument('-mc', '--model-config', metavar='MODEL_CONFIG', required=True, help='model topology', dest='model_config')
   parser.add_argument('-i', '--input-config', metavar='INPUT_CONFIG', required=True, help='input configuration', dest='input_config')
   parser.add_argument('-b', '--board', metavar='BOARD', required=True, help='FPGA board information', dest='board')
+  parser.add_argument('--parallel', help='multi-threading parallelization', action='store_true', dest='parallel')
+  parser.add_argument('-dt', '--dynamic-tiling', metavar='DYNAMIC_TILING', help='dynamic tiling level (0:disabled, 1:channel 2:height/width)', required=False, type=int, default=1, dest='dynamic_tiling')
 
   args = parser.parse_args()
-  run(args.model, args.model_config, args.input_config, args.board)
+  run(args.model, args.model_config, args.input_config, args.board, args.parallel, args.dynamic_tiling)
