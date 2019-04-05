@@ -6,7 +6,7 @@
 
 source /opt/tools/xilinx/Vivado/2018.3/scripts/vivado_hls/hls.tcl -notrace
 INFO: [HLS 200-10] Running '/opt/tools/xilinx/Vivado/2018.3/bin/unwrapped/lnx64.o/vivado_hls'
-INFO: [HLS 200-10] For user 'jaywang' on host 'localhost' (Linux_x86_64 version 4.4.0-140-generic) on Fri Apr 05 11:16:07 PDT 2019
+INFO: [HLS 200-10] For user 'jaywang' on host 'localhost' (Linux_x86_64 version 4.4.0-140-generic) on Fri Apr 05 13:18:34 PDT 2019
 INFO: [HLS 200-10] On os "CentOS Linux release 7.5.1804 (Core) "
 INFO: [HLS 200-10] In directory '/curr/jaywang/research/ndn/github/openposeFPGA_mobilenet/HLS_project'
 WARNING: [HLS 200-40] Environment variable 'C_INCLUDE_PATH' is set to /opt/novell/mono/include.
@@ -97,4 +97,4 @@ Results comparison...
 Success!
 INFO: [SIM 211-1] CSim done with 0 errors.
 INFO: [SIM 211-3] *************** CSIM finish ***************
-INFO: [Common 17-206] Exiting vivado_hls at Fri Apr  5 13:05:29 2019...
+INFO: [Common 17-206] Exiting vivado_hls at Fri Apr  5 15:08:26 2019...

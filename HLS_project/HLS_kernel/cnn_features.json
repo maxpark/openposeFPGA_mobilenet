@@ -14,7 +14,7 @@
     "IN_IMG_W_T": 50,
     "OUT_IMG_H_T": 12,
     "OUT_IMG_W_T": 48,
-    "LAYER_BATCH": 4,
+    "LAYER_BATCH": 2,
     "STRIDE": 1
   },   
   "ITERATORS": [
@@ -48,7 +48,7 @@
       ],
       "TILE": {
         "ENABLE": 1,
-        "TILE_FACTOR": 12
+        "TILE_FACTOR": 48
       }
     },
     {
